@@ -3,7 +3,9 @@ from decimal import Decimal
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import Product, SystemSetting
+from app.core.config import get_settings
+from app.core.rbac import Role
+from app.models import Product, SystemSetting, User
 
 
 PRODUCTS = [
@@ -140,4 +142,9 @@ def seed(db: Session) -> None:
         db.add(Product(**item, enabled=True, provider="tgstars"))
     if not db.get(SystemSetting, "seeded"):
         db.add(SystemSetting(key="seeded", value="1"))
+    owner_id = int(get_settings().owner_telegram_id or 0)
+    if owner_id:
+        owner = db.scalar(select(User).where(User.telegram_id == owner_id))
+        if owner and owner.role != Role.SUPERADMIN.value:
+            owner.role = Role.SUPERADMIN.value
     db.commit()

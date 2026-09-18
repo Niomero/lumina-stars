@@ -1,5 +1,6 @@
 from decimal import Decimal
 
+from app.core.rbac import is_owner_telegram
 from app.models import Order, Product, Transaction, User
 
 
@@ -23,6 +24,7 @@ def user_public(user: User, balance=None, extra=None) -> dict:
         "is_blocked": user.is_blocked,
         "referral_code": user.referral_code,
         "mirror_id": user.mirror_id,
+        "is_owner": is_owner_telegram(user.telegram_id),
         "created_at": user.created_at.isoformat() if user.created_at else None,
     }
     if balance is not None:

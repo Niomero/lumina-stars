@@ -19,13 +19,14 @@ import {
   AtSign,
 } from "lucide-react";
 import { api, ApiError, clearToken, getToken, setToken } from "./api/client";
-import { formatRub, payStatusLabel, payStatusTone, statusLabel, statusTone } from "./lib/format";
+import { formatRub, payStatusLabel, payStatusTone, roleLabel, statusLabel, statusTone } from "./lib/format";
 import { bootTelegram, haptic } from "./lib/telegram";
 import { AssetPage, GalleryHome, GiftArt, RentListPage, RentNftPage } from "./Market";
 import { TrustPayPage } from "./TrustPay";
 
 type Me = {
   id: number;
+  telegram_id?: number;
   first_name?: string;
   username?: string;
   role: string;
@@ -34,6 +35,7 @@ type Me = {
   spent: string;
   referral_code: string;
   photo_url?: string;
+  is_owner?: boolean;
 };
 
 const isStaff = (role?: string) => ["MANAGER", "ADMIN", "SUPERADMIN", "MIRROR_OWNER"].includes(role || "");
@@ -69,6 +71,7 @@ function Shell({ me, children }: { me: Me; children: React.ReactNode }) {
             {[
               ["/admin", "Дашборд"],
               ["/admin/users", "Пользователи"],
+              ["/admin/staff", "Команда"],
               ["/admin/orders", "Заказы"],
               ["/admin/products", "Товары"],
               ["/admin/mirrors", "Зеркала"],
@@ -448,10 +451,19 @@ function Transactions() {
   );
 }
 
-function AdminPage({ path }: { path: string }) {
+function AdminPage({ path, me }: { path: string; me: Me }) {
   const qc = useQueryClient();
+  const [userQ, setUserQ] = useState("");
+  const [staffTg, setStaffTg] = useState("");
+  const [staffUser, setStaffUser] = useState("");
+  const [staffRole, setStaffRole] = useState("ADMIN");
   const overview = useQuery({ queryKey: ["adm-ov"], queryFn: () => api("/admin/overview?period=7d") });
-  const users = useQuery({ queryKey: ["adm-users"], queryFn: () => api("/admin/users"), enabled: path === "users" });
+  const users = useQuery({
+    queryKey: ["adm-users", userQ],
+    queryFn: () => api(`/admin/users?q=${encodeURIComponent(userQ)}`),
+    enabled: path === "users",
+  });
+  const staff = useQuery({ queryKey: ["adm-staff"], queryFn: () => api("/admin/staff"), enabled: path === "staff" });
   const orders = useQuery({ queryKey: ["adm-orders"], queryFn: () => api("/admin/orders"), enabled: path === "orders" });
   const products = useQuery({ queryKey: ["adm-products"], queryFn: () => api("/admin/products"), enabled: path === "products" });
   const mirrors = useQuery({ queryKey: ["adm-mirrors"], queryFn: () => api("/admin/mirrors"), enabled: path === "mirrors" });
@@ -479,17 +491,106 @@ function AdminPage({ path }: { path: string }) {
     mutationFn: (id: number | string) => api(`/admin/trust-pay/${id}/fail`, { method: "POST" }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["adm-tp"] }),
   });
+  const setRole = useMutation({
+    mutationFn: ({ id, role }: { id: number; role: string }) =>
+      api(`/admin/users/${id}`, { method: "PATCH", body: JSON.stringify({ role }) }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["adm-users"] });
+      qc.invalidateQueries({ queryKey: ["adm-staff"] });
+    },
+  });
+  const addStaff = useMutation({
+    mutationFn: () => {
+      const body: Record<string, string | number> = { role: staffRole };
+      const tid = staffTg.replace(/\D/g, "");
+      if (tid) body.telegram_id = Number(tid);
+      const name = staffUser.replace(/^@/, "").trim();
+      if (name) body.username = name;
+      return api("/admin/staff", { method: "POST", body: JSON.stringify(body) });
+    },
+    onSuccess: () => {
+      setStaffTg("");
+      setStaffUser("");
+      qc.invalidateQueries({ queryKey: ["adm-staff"] });
+      qc.invalidateQueries({ queryKey: ["adm-users"] });
+    },
+  });
+  const dropStaff = useMutation({
+    mutationFn: (id: number) => api(`/admin/staff/${id}`, { method: "DELETE" }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["adm-staff"] });
+      qc.invalidateQueries({ queryKey: ["adm-users"] });
+    },
+  });
 
   if (path === "users") {
+    const owner = me.role === "SUPERADMIN";
     return (
       <div className="grid">
         <h1 className="h1 display">Пользователи</h1>
+        <input placeholder="Имя, @username или Telegram ID" value={userQ} onChange={(e) => setUserQ(e.target.value)} />
         {(users.data?.items || []).map((u: any) => (
-          <div key={u.id} className="panel between pad">
-            <div><b>{u.first_name} @{u.username}</b><div className="muted">{u.role}</div></div>
-            <div className="num">{formatRub(u.balance)}</div>
+          <div key={u.id} className="panel pad grid">
+            <div className="between">
+              <div>
+                <b>{u.first_name || "—"} {u.username ? `@${u.username}` : ""}</b>
+                <div className="muted">Telegram ID {u.telegram_id} · {roleLabel(u.role)}</div>
+              </div>
+              <div className="num">{formatRub(u.balance)}</div>
+            </div>
+            {u.is_owner && <span className="badge ok">Владелец</span>}
+            {owner && !u.is_owner && u.role !== "SUPERADMIN" && (
+              <div className="row">
+                {u.role !== "ADMIN" && <button className="btn sm" onClick={() => setRole.mutate({ id: u.id, role: "ADMIN" })}>Админ</button>}
+                {u.role !== "MANAGER" && <button className="btn ghost sm" onClick={() => setRole.mutate({ id: u.id, role: "MANAGER" })}>Менеджер</button>}
+                {u.role !== "USER" && <button className="btn ghost sm" onClick={() => setRole.mutate({ id: u.id, role: "USER" })}>Снять права</button>}
+              </div>
+            )}
           </div>
         ))}
+        {!(users.data?.items || []).length && <div className="empty">Никого не нашли</div>}
+        {setRole.error && <div className="err">{(setRole.error as ApiError).message}</div>}
+      </div>
+    );
+  }
+  if (path === "staff") {
+    const owner = me.role === "SUPERADMIN";
+    return (
+      <div className="grid">
+        <h1 className="h1 display">Команда</h1>
+        <p className="muted">Владелец — Telegram ID 8565986003. Администраторов добавляет только владелец.</p>
+        {owner && (
+          <div className="panel pad grid">
+            <div className="tiny">Новый администратор</div>
+            <input inputMode="numeric" placeholder="Telegram ID" value={staffTg} onChange={(e) => setStaffTg(e.target.value)} />
+            <input placeholder="@username, если уже заходил" value={staffUser} onChange={(e) => setStaffUser(e.target.value)} />
+            <div className="chips">
+              <button className={staffRole === "ADMIN" ? "on" : ""} onClick={() => setStaffRole("ADMIN")}>Администратор</button>
+              <button className={staffRole === "MANAGER" ? "on" : ""} onClick={() => setStaffRole("MANAGER")}>Менеджер</button>
+            </div>
+            {addStaff.error && <div className="err">{(addStaff.error as ApiError).message}</div>}
+            <button className="btn block" disabled={addStaff.isPending || (!staffTg.trim() && !staffUser.trim())} onClick={() => addStaff.mutate()}>
+              {addStaff.isPending ? "Добавляем…" : "Добавить"}
+            </button>
+          </div>
+        )}
+        {(staff.data?.items || []).map((u: any) => (
+          <div key={u.id} className="panel pad grid">
+            <div className="between">
+              <div>
+                <b>{u.first_name || "—"} {u.username ? `@${u.username}` : ""}</b>
+                <div className="muted">Telegram ID {u.telegram_id}</div>
+              </div>
+              <span className={`badge ${u.is_owner || u.role === "SUPERADMIN" ? "ok" : ""}`}>
+                {u.is_owner ? "Владелец" : roleLabel(u.role)}
+              </span>
+            </div>
+            {owner && !u.is_owner && u.role !== "SUPERADMIN" && (
+              <button className="btn ghost sm" onClick={() => dropStaff.mutate(u.id)}>Снять права</button>
+            )}
+          </div>
+        ))}
+        {dropStaff.error && <div className="err">{(dropStaff.error as ApiError).message}</div>}
       </div>
     );
   }
@@ -682,14 +783,15 @@ export default function App() {
         <Route path="/transactions" element={<Transactions />} />
         <Route path="/referrals" element={<Referrals />} />
         <Route path="/profile" element={<Profile me={me.data} />} />
-        <Route path="/admin" element={isStaff(me.data.role) ? <AdminPage path="home" /> : <Navigate to="/" />} />
-        <Route path="/admin/users" element={<AdminPage path="users" />} />
-        <Route path="/admin/orders" element={<AdminPage path="orders" />} />
-        <Route path="/admin/products" element={<AdminPage path="products" />} />
-        <Route path="/admin/mirrors" element={<AdminPage path="mirrors" />} />
-        <Route path="/admin/analytics" element={<AdminPage path="analytics" />} />
-        <Route path="/admin/trust-pay" element={<AdminPage path="trust-pay" />} />
-        <Route path="/admin/settings" element={<AdminPage path="settings" />} />
+        <Route path="/admin" element={isStaff(me.data.role) ? <AdminPage path="home" me={me.data} /> : <Navigate to="/" />} />
+        <Route path="/admin/users" element={isStaff(me.data.role) ? <AdminPage path="users" me={me.data} /> : <Navigate to="/" />} />
+        <Route path="/admin/staff" element={isStaff(me.data.role) ? <AdminPage path="staff" me={me.data} /> : <Navigate to="/" />} />
+        <Route path="/admin/orders" element={isStaff(me.data.role) ? <AdminPage path="orders" me={me.data} /> : <Navigate to="/" />} />
+        <Route path="/admin/products" element={isStaff(me.data.role) ? <AdminPage path="products" me={me.data} /> : <Navigate to="/" />} />
+        <Route path="/admin/mirrors" element={isStaff(me.data.role) ? <AdminPage path="mirrors" me={me.data} /> : <Navigate to="/" />} />
+        <Route path="/admin/analytics" element={isStaff(me.data.role) ? <AdminPage path="analytics" me={me.data} /> : <Navigate to="/" />} />
+        <Route path="/admin/trust-pay" element={isStaff(me.data.role) ? <AdminPage path="trust-pay" me={me.data} /> : <Navigate to="/" />} />
+        <Route path="/admin/settings" element={isStaff(me.data.role) ? <AdminPage path="settings" me={me.data} /> : <Navigate to="/" />} />
         <Route path="*" element={<Navigate to="/" />} />
       </Routes>
     </Shell>

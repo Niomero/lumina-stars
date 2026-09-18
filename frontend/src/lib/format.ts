@@ -39,3 +39,14 @@ export function payStatusTone(status: string) {
   if (["failed", "cancelled", "expired"].includes(status)) return "bad";
   return "warn";
 }
+
+export function roleLabel(role: string) {
+  const map: Record<string, string> = {
+    SUPERADMIN: "Суперадмин",
+    ADMIN: "Администратор",
+    MANAGER: "Менеджер",
+    MIRROR_OWNER: "Владелец зеркала",
+    USER: "Пользователь",
+  };
+  return map[role] || role;
+}

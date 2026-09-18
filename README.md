@@ -41,6 +41,11 @@ npm run build   # кладёт SPA в backend/static
 - `TELEGRAM_BOT_TOKEN`
 - `TELEGRAM_WEBAPP_URL`
 
+Владелец и команда:
+
+- `OWNER_TELEGRAM_ID=8565986003` — этот Telegram ID всегда SUPERADMIN
+- Админов добавляет владелец в разделе «Команда» по Telegram ID или @username
+
 Trust Pay (перевод по номеру карты, не эквайринг):
 
 - `TRUST_PAY_CARD_NUMBER` — карта получателя

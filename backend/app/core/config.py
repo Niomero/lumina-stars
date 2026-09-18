@@ -44,6 +44,8 @@ class Settings(BaseSettings):
     trust_pay_card_holder: str = ""
     trust_pay_expire_minutes: int = 60
 
+    owner_telegram_id: int = 8565986003
+
 
     @property
     def sqlalchemy_url(self) -> str:

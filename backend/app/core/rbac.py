@@ -72,3 +72,18 @@ def has_permission(role: str, permission: str) -> bool:
 def require_permission(role: str, permission: str) -> None:
     if not has_permission(role, permission):
         raise ForbiddenError("Недостаточно прав")
+
+
+STAFF_ROLES = {Role.MANAGER.value, Role.ADMIN.value, Role.SUPERADMIN.value}
+ASSIGNABLE_ROLES = {Role.USER.value, Role.MANAGER.value, Role.ADMIN.value}
+
+
+def is_owner_telegram(telegram_id) -> bool:
+    from app.core.config import get_settings
+
+    if telegram_id is None:
+        return False
+    try:
+        return int(telegram_id) == int(get_settings().owner_telegram_id)
+    except (TypeError, ValueError):
+        return False

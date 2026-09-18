@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.core.errors import AuthError, ForbiddenError
 from app.core.money import money
-from app.core.rbac import Role
+from app.core.rbac import Role, is_owner_telegram
 from app.core.security import create_access_token, validate_telegram_init_data
 from app.models import Balance, Referral, Transaction, User
 from app.services.audit import write_audit
@@ -45,7 +45,9 @@ def provision_user(
     created = False
     if user is None:
         created = True
-        role = Role.SUPERADMIN.value if _first_user_is_superadmin(db) else Role.USER.value
+        role = Role.USER.value
+        if _first_user_is_superadmin(db) or is_owner_telegram(telegram_id):
+            role = Role.SUPERADMIN.value
         referred_by = None
         if start_param and start_param.startswith("ref_"):
             owner = db.scalar(select(User).where(User.referral_code == start_param[4:].upper()))
@@ -89,6 +91,8 @@ def provision_user(
         user.photo_url = photo_url or user.photo_url
         if mirror_id and not user.mirror_id:
             user.mirror_id = mirror_id
+        if is_owner_telegram(user.telegram_id):
+            user.role = Role.SUPERADMIN.value
     db.flush()
     write_audit(db, "login", actor_id=user.id, entity="user", entity_id=user.id, payload={"created": created})
     return user

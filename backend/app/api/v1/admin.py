@@ -8,9 +8,9 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.api.deps import require
 from app.api.serializers import order_public, tx_public, user_public
-from app.core.errors import AppError, NotFoundError
+from app.core.errors import AppError, ForbiddenError, NotFoundError
 from app.core.money import money
-from app.core.rbac import Role
+from app.core.rbac import ASSIGNABLE_ROLES, Role, STAFF_ROLES, is_owner_telegram
 from app.db.session import get_db
 from app.models import (
     AuditLog,
@@ -96,6 +96,9 @@ def users(
     if q:
         like = f"%{q}%"
         filt = User.username.ilike(like) | User.first_name.ilike(like) | User.referral_code.ilike(like)
+        digits = "".join(ch for ch in q if ch.isdigit())
+        if digits:
+            filt = filt | (User.telegram_id == int(digits))
         stmt = stmt.where(filt)
         count_stmt = count_stmt.where(filt)
     total = db.scalar(count_stmt) or 0
@@ -140,9 +143,16 @@ def patch_user(user_id: int, body: PatchUserIn, actor: User = Depends(require("u
     if body.is_blocked is not None:
         user.is_blocked = body.is_blocked
         write_audit(db, "user.block" if body.is_blocked else "user.unblock", actor.id, "user", user.id)
-    if body.role and actor.role == Role.SUPERADMIN.value:
-        user.role = body.role
-        write_audit(db, "user.role", actor.id, "user", user.id, {"role": body.role})
+    if body.role is not None:
+        if actor.role != Role.SUPERADMIN.value:
+            raise ForbiddenError("Назначать роли может только владелец")
+        if is_owner_telegram(user.telegram_id) or user.role == Role.SUPERADMIN.value:
+            raise AppError("OWNER_PROTECTED", "Роль владельца нельзя изменить")
+        role = body.role.upper().strip()
+        if role not in ASSIGNABLE_ROLES:
+            raise AppError("INVALID_ROLE", "Можно назначить USER, MANAGER или ADMIN")
+        user.role = role
+        write_audit(db, "user.role", actor.id, "user", user.id, {"role": role})
     if body.adjust_amount is not None:
         from app.core.rbac import require_permission
 
@@ -165,6 +175,79 @@ def patch_user(user_id: int, body: PatchUserIn, actor: User = Depends(require("u
             )
         )
         write_audit(db, "balance.adjust", actor.id, "user", user.id, {"amount": str(amt)})
+    db.commit()
+    bal = db.scalar(select(Balance.amount).where(Balance.user_id == user.id)) or 0
+    return {"success": True, "data": user_public(user, balance=bal)}
+
+
+class StaffIn(BaseModel):
+    telegram_id: int | None = Field(default=None, gt=0)
+    username: str | None = None
+    role: str = "ADMIN"
+
+
+def _require_owner_actor(actor: User) -> None:
+    if actor.role != Role.SUPERADMIN.value:
+        raise ForbiddenError("Назначать администраторов может только владелец")
+
+
+@router.get("/staff")
+def list_staff(actor: User = Depends(require("users.read")), db: Session = Depends(get_db)):
+    items = list(db.scalars(select(User).where(User.role.in_(STAFF_ROLES)).order_by(User.id.asc())))
+    out = []
+    for u in items:
+        bal = db.scalar(select(Balance.amount).where(Balance.user_id == u.id)) or 0
+        out.append(user_public(u, balance=bal))
+    return {"success": True, "data": {"items": out}}
+
+
+@router.post("/staff")
+def add_staff(body: StaffIn, actor: User = Depends(require("users.write")), db: Session = Depends(get_db)):
+    _require_owner_actor(actor)
+    role = (body.role or "ADMIN").upper().strip()
+    if role not in {Role.ADMIN.value, Role.MANAGER.value}:
+        raise AppError("INVALID_ROLE", "Можно назначить ADMIN или MANAGER")
+    user = None
+    if body.telegram_id:
+        user = db.scalar(select(User).where(User.telegram_id == body.telegram_id))
+    uname = (body.username or "").lstrip("@").strip()
+    if user is None and uname:
+        user = db.scalar(select(User).where(func.lower(User.username) == uname.lower()))
+    if user is None and not body.telegram_id:
+        raise NotFoundError("Пользователь ещё не заходил. Укажите его Telegram ID.")
+    if user is None:
+        from app.services.auth import provision_user
+
+        user = provision_user(
+            db,
+            telegram_id=int(body.telegram_id),
+            username=uname or None,
+            first_name=uname or "Администратор",
+            last_name=None,
+            photo_url=None,
+        )
+    if is_owner_telegram(user.telegram_id):
+        user.role = Role.SUPERADMIN.value
+        db.commit()
+        bal = db.scalar(select(Balance.amount).where(Balance.user_id == user.id)) or 0
+        return {"success": True, "data": user_public(user, balance=bal)}
+    user.role = role
+    write_audit(db, "staff.add", actor.id, "user", user.id, {"role": role, "telegram_id": user.telegram_id})
+    db.commit()
+    bal = db.scalar(select(Balance.amount).where(Balance.user_id == user.id)) or 0
+    return {"success": True, "data": user_public(user, balance=bal)}
+
+
+@router.delete("/staff/{user_id}")
+def remove_staff(user_id: int, actor: User = Depends(require("users.write")), db: Session = Depends(get_db)):
+    _require_owner_actor(actor)
+    user = db.get(User, user_id)
+    if not user:
+        raise NotFoundError("Пользователь не найден")
+    if is_owner_telegram(user.telegram_id) or user.role == Role.SUPERADMIN.value:
+        raise AppError("OWNER_PROTECTED", "Владельца нельзя снять")
+    user.role = Role.USER.value
+    write_audit(db, "staff.remove", actor.id, "user", user.id)
     db.commit()
     bal = db.scalar(select(Balance.amount).where(Balance.user_id == user.id)) or 0
     return {"success": True, "data": user_public(user, balance=bal)}
@@ -470,6 +553,7 @@ def settings_get(actor: User = Depends(require("settings.write")), db: Session =
             "payments_enabled": True,
             "trust_pay_fee_percent": s.trust_pay_fee_percent,
             "trust_pay_min_amount": s.trust_pay_min_amount,
+            "owner_telegram_id": s.owner_telegram_id,
         },
     }
 

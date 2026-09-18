@@ -103,7 +103,7 @@ input::placeholder { color: var(--fg-subtle); }
 .btn:disabled { opacity: .45; cursor: not-allowed; }
 .btn.block { width: 100%; }
 
-.row { display: flex; gap: var(--space-3); align-items: center; }
+.row { display: flex; gap: var(--space-3); align-items: center; flex-wrap: wrap; }
 .between { display: flex; justify-content: space-between; align-items: center; gap: var(--space-3); }
 .grid { display: grid; gap: var(--space-3); }
 .gallery { gap: var(--space-4); }
