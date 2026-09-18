@@ -99,6 +99,8 @@ def test_checkout_and_idempotency(client):
     assert first.status_code == 200, first.text
     order = first.json()["data"]
     assert order["status"] == "APPROVED"
+    assert order["unit_price"] == "1.32"
+    assert order["total_price"] == "132.00"
     assert "одобрен" in (order.get("headline") or "").lower() or order["status"] == "APPROVED"
     second = client.post("/api/v1/orders", json=payload, headers=headers)
     assert second.json()["data"]["public_id"] == order["public_id"]
@@ -116,7 +118,7 @@ def test_insufficient_balance(client):
         "idempotency_key": "low-balance-key-0001",
     }
     res = client.post("/api/v1/orders", json=payload, headers=headers)
-    if float(me["balance"]) < 18000:
+    if float(me["balance"]) < 13000:
         assert res.status_code == 402
         assert res.json()["error"]["code"] == "INSUFFICIENT_BALANCE"
 

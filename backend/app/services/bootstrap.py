@@ -18,7 +18,7 @@ PRODUCTS = [
         "min_quantity": 50,
         "max_quantity": 10000,
         "step": 50,
-        "fallback_unit_price": Decimal("1.85"),
+        "fallback_unit_price": Decimal("1.32"),
         "popular": True,
         "sort_order": 1,
     },
@@ -134,6 +134,8 @@ def seed(db: Session) -> None:
     for item in PRODUCTS:
         existing = db.scalar(select(Product).where(Product.slug == item["slug"]))
         if existing:
+            if item["slug"] == "telegram-stars" and existing.fallback_unit_price != item["fallback_unit_price"]:
+                existing.fallback_unit_price = item["fallback_unit_price"]
             continue
         db.add(Product(**item, enabled=True, provider="tgstars"))
     if not db.get(SystemSetting, "seeded"):

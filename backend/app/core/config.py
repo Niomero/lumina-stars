@@ -30,7 +30,7 @@ class Settings(BaseSettings):
     demo_mode: bool = True
     demo_login_enabled: bool = True
     bootstrap_balance_rub: str = "5000.00"
-    fallback_star_price_rub: str = "1.85"
+    fallback_star_price_rub: str = "1.32"
 
     tgstars_enabled: bool = False
     payments_enabled: bool = False
