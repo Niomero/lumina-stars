@@ -1,12 +1,14 @@
 # TGStars Client API map
 
-Source: `https://tgstars.helper20sms.ru/api/swagger-internal/swagger.json`
+Source: `https://tgstars.tg/api/swagger-internal/swagger.json`
 
-Base URL: `https://tgstars.helper20sms.ru/api/v1/client`
+Base URL: `https://tgstars.tg/api/v1/client`
 
 Auth: `Authorization: Bearer <TGSTARS_API_KEY>`
 
 Rate limit: 30 req/min, min 2 seconds between requests.
+
+Catalog reads run even in DEMO_MODE. Write endpoints (`POST /orders/*`) stay blocked while DEMO_MODE is on.
 
 | Method | HTTP | Endpoint | Request | Response | Purpose |
 |---|---|---|---|---|---|
@@ -33,5 +35,3 @@ Rate limit: 30 req/min, min 2 seconds between requests.
 | buy_nft | POST | `/orders/nft/buy` | `{nft_address}` | purchase | Live NFT buy |
 | transfer_nft_telegram | POST | `/orders/nft/transfer/telegram` | `{transaction_id, username}` | transfer | Send NFT to Telegram |
 | transfer_nft_wallet | POST | `/orders/nft/transfer/wallet` | `{transaction_id, wallet_address}` | transfer | Send NFT to TON wallet |
-
-DEMO_MODE never calls write endpoints (`POST /orders/*`). Catalog reads are used when `TGSTARS_API_KEY` is set; otherwise the boutique shows a local DEMO витрина with the same fields.

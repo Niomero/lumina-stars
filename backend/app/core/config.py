@@ -24,7 +24,7 @@ class Settings(BaseSettings):
     telegram_webapp_url: str = ""
     telegram_webhook_secret: str = "lumina-hook"
 
-    tgstars_api_url: str = "https://tgstars.helper20sms.ru/api/v1/client"
+    tgstars_api_url: str = "https://tgstars.tg/api/v1/client"
     tgstars_api_key: str = ""
 
     demo_mode: bool = True
@@ -43,9 +43,9 @@ class Settings(BaseSettings):
     trust_pay_card_number: str = "5599002144955509"
     trust_pay_card_holder: str = ""
     trust_pay_expire_minutes: int = 60
+    yoomoney_wallet: str = "4100119621450464"
 
     owner_telegram_id: int = 8565986003
-
 
     @property
     def sqlalchemy_url(self) -> str:

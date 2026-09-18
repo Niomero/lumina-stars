@@ -60,6 +60,17 @@ class TgStarsClient:
                 response = client.request(
                     method, url, params=params, json=json, headers=self._headers(request_id)
                 )
+                if response.status_code == 429:
+                    wait = 2.2
+                    try:
+                        wait = float((response.json() or {}).get("retry_after") or 2.2)
+                    except Exception:
+                        pass
+                    time.sleep(min(max(wait, 2.1), 6.0) + 0.15)
+                    self._last_call = time.monotonic()
+                    response = client.request(
+                        method, url, params=params, json=json, headers=self._headers(str(uuid.uuid4()))
+                    )
         except httpx.TimeoutException as exc:
             raise TgStarsUnavailable("TGStars API timeout") from exc
         except httpx.HTTPError as exc:

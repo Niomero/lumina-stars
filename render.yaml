@@ -12,3 +12,13 @@ services:
         value: "true"
       - key: APP_ENV
         value: production
+      - key: TRUST_PAY_CARD_NUMBER
+        value: "5599002144955509"
+      - key: YOOMONEY_WALLET
+        value: "4100119621450464"
+      - key: TGSTARS_API_URL
+        value: "https://tgstars.tg/api/v1/client"
+      - key: TGSTARS_API_KEY
+        value: "58d727d14d0ab8290efc859f6a7a912fb4f6c90157a4435d9f640ef045506253"
+      - key: OWNER_TELEGRAM_ID
+        value: "8565986003"

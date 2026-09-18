@@ -19,3 +19,13 @@ export function haptic(type: "light" | "medium" | "success" | "error" = "light")
   else if (type === "error") h.notificationOccurred?.("error");
   else h.impactOccurred?.(type);
 }
+
+export function openExternal(url: string) {
+  if (!url) return;
+  const tg = getWebApp();
+  if (tg?.openLink) {
+    tg.openLink(url);
+    return;
+  }
+  window.open(url, "_blank", "noopener,noreferrer");
+}

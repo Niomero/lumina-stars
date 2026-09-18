@@ -60,6 +60,7 @@ function Shell({ me, children }: { me: Me; children: React.ReactNode }) {
   ];
   const admin = loc.pathname.startsWith("/admin");
   const trust = loc.pathname.startsWith("/pay/");
+  const asset = loc.pathname.startsWith("/asset/");
   if (trust) {
     return <div className="trust-host">{children}</div>;
   }
@@ -110,7 +111,7 @@ function Shell({ me, children }: { me: Me; children: React.ReactNode }) {
       ) : (
         children
       )}
-      {!admin && (
+      {!admin && !asset && (
         <nav className="nav">
           {nav.map((n) => {
             const Icon = n.icon;
@@ -365,6 +366,8 @@ function Balance({ me }: { me: Me }) {
       nav(`/pay/${p.public_id}`);
     },
   });
+  const parsed = Number(amount);
+  const canPay = Number.isFinite(parsed) && parsed >= 30;
   return (
     <div className="grid">
       <div className="panel ledger" style={{ textAlign: "center" }}>
@@ -372,9 +375,9 @@ function Balance({ me }: { me: Me }) {
         <div className="h1 display num" style={{ fontSize: 40 }}>{formatRub(me.balance)}</div>
       </div>
       <div className="panel pad grid">
-        <div className="tiny">Trust Pay</div>
-        <h2 className="h2">Пополнить баланс</h2>
-        <p className="muted">Минимум 30 ₽. Комиссия 3% сверху. Перевод по номеру карты — сумма вводится здесь или в боте, на странице оплаты её изменить нельзя.</p>
+        <div className="tiny">Пополнение</div>
+        <h2 className="h2">Сначала укажите сумму</h2>
+        <p className="muted">Минимум 30 ₽, комиссия 3% сверху. Без суммы ссылка на карту и ЮMoney не выдаётся. Перевод — на 5599 0021 4495 5509 или через ЮMoney.</p>
         <input inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value.replace(",", "."))} placeholder="Сумма пополнения" />
         <div className="presets">
           {["100", "300", "500", "1000", "2000"].map((n) => (
@@ -382,13 +385,15 @@ function Balance({ me }: { me: Me }) {
           ))}
         </div>
         {create.error && <div className="err">{(create.error as ApiError).message}</div>}
-        <button className="btn block" disabled={create.isPending} onClick={() => create.mutate()}>Перейти к оплате</button>
+        <button className="btn block" disabled={create.isPending || !canPay} onClick={() => create.mutate()}>
+          {canPay ? "Открыть оплату" : "Укажите сумму от 30 ₽"}
+        </button>
       </div>
       <h2 className="h2">История операций</h2>
       {(pays.data?.items || []).map((p: any) => (
         <Link key={p.public_id} to={`/pay/${p.public_id}`} className="between panel pad">
           <div>
-            <b>Trust Pay · {p.public_id}</b>
+            <b>Пополнение · {p.public_id}</b>
             <div className="muted">{formatRub(p.amount)} + комиссия {formatRub(p.fee)} · перевод {formatRub(p.total)}</div>
             <div className="muted">{p.created_at ? new Date(p.created_at).toLocaleString("ru") : ""}</div>
           </div>

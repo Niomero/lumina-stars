@@ -65,6 +65,9 @@ input::placeholder { color: var(--fg-subtle); }
   min-height: 100dvh;
   padding: calc(var(--space-4) + var(--safe-t)) var(--space-4) calc(118px + var(--safe-b));
 }
+.app:has(.asset-page) {
+  padding-bottom: calc(28px + var(--safe-b));
+}
 .app.admin { max-width: 1120px; }
 
 .display {
@@ -364,6 +367,15 @@ input::placeholder { color: var(--fg-subtle); }
   border: 1px solid var(--border);
 }
 .gift-art.lg { height: 188px; margin: 0 0 14px; border-radius: calc(var(--radius-xl) - 8px); }
+.gift-art.photo {
+  background: var(--bg-subtle);
+  overflow: hidden;
+}
+.gift-art.photo img {
+  width: 82%;
+  height: 82%;
+  object-fit: contain;
+}
 .gift-plate {
   width: 72%;
   aspect-ratio: 1;
@@ -379,6 +391,44 @@ input::placeholder { color: var(--fg-subtle); }
 .gift b { display: block; font-weight: 520; font-size: 14px; }
 .handle-row { padding: 16px 18px; }
 .handle { font-size: 1.35rem; }
+.thumb {
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  object-fit: cover;
+  background: var(--bg-subtle);
+  flex: none;
+}
+.back-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  width: max-content;
+  margin: 0;
+  padding: 6px 0;
+  min-height: 36px;
+  border: 0;
+  background: transparent;
+  color: var(--fg-muted);
+  font: inherit;
+}
+.back-link:active { opacity: .7; }
+.handle-hero {
+  font-family: var(--font-display);
+  font-size: clamp(1.7rem, 8vw, 2.5rem);
+  letter-spacing: -0.04em;
+  line-height: 1.1;
+  padding: 36px 8px 20px;
+  word-break: break-word;
+}
+.asset-cta {
+  position: sticky;
+  bottom: 0;
+  z-index: 8;
+  padding: 10px 0 calc(8px + var(--safe-b));
+  background: linear-gradient(to top, var(--bg) 72%, transparent);
+}
+.asset-page { gap: var(--space-3); }
 
 .ledger {
   padding: 22px 20px 18px;
@@ -401,7 +451,7 @@ input::placeholder { color: var(--fg-subtle); }
 .ledger .h1 { font-variant-numeric: tabular-nums; }
 
 .asset-hero { padding: 14px 14px 18px; text-align: center; }
-.asset-hero .h1 { margin-top: 4px; }
+.asset-hero .h1 { margin-top: 4px; word-break: break-word; }
 .aftercare { text-align: left; margin-top: 8px; }
 .sr-only {
   position: absolute;
@@ -545,10 +595,12 @@ body.trust-body {
   position: relative;
   z-index: 1;
   margin: 18px 0 10px;
-  font-size: 1.22rem;
-  letter-spacing: 0.12em;
+  font-size: clamp(0.98rem, 3.8vw, 1.18rem);
+  letter-spacing: 0.08em;
   font-variant-numeric: tabular-nums;
 }
+.tp-pan b { line-height: 1.25; word-break: break-word; }
+.tp-yo { margin-top: 2px; }
 .tp-chip { width: 42px; height: 32px; color: #0b1c38; flex: none; }
 .tp-holder, .tp-card-meta {
   position: relative;

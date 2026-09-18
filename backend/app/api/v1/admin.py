@@ -677,6 +677,8 @@ def settings_get(actor: User = Depends(require("settings.write")), db: Session =
             "payments_enabled": True,
             "trust_pay_fee_percent": s.trust_pay_fee_percent,
             "trust_pay_min_amount": s.trust_pay_min_amount,
+            "trust_pay_card": "5599 0021 4495 5509",
+            "yoomoney_wallet": s.yoomoney_wallet,
             "owner_telegram_id": s.owner_telegram_id,
         },
     }

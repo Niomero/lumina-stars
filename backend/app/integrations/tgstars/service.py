@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import logging
 import time
-from decimal import Decimal
 from typing import Any, Optional
 
 from app.core.config import get_settings
@@ -24,7 +23,8 @@ class TgStarsService:
         now = time.time()
         if use_cache and _rate_cache["data"] and now - _rate_cache["ts"] < 30:
             return _rate_cache["data"]
-        if not settings.tgstars_api_key:
+        # In DEMO keep the shop price the merchant set (1.32). Live rate is provider cost.
+        if settings.demo_mode or not settings.tgstars_api_key:
             data = self._fallback_rate()
             _rate_cache.update(ts=now, data=data)
             return data

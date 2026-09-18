@@ -1,6 +1,8 @@
 from decimal import Decimal
 
+from app.core.errors import AppError
 from app.core.money import money, percent_of
+from app.services.trust_pay import copy_card, topup_reply, yoomoney_url
 from tests.test_core import auth_header
 
 
@@ -10,6 +12,18 @@ def test_fee_examples():
     assert percent_of(Decimal("500"), 3) == Decimal("15.00")
     assert percent_of(Decimal("1000"), 3) == Decimal("30.00")
     assert money(Decimal("500") + Decimal("15")) == Decimal("515.00")
+
+
+def test_card_and_yoomoney_helpers():
+    assert copy_card("5599002144955509") == "5599 0021 4495 5509"
+    url = yoomoney_url("515")
+    assert url == "https://yoomoney.ru/to/4100119621450464/515"
+    assert not url.endswith("/0")
+    try:
+        yoomoney_url("0")
+        assert False, "expected amount required"
+    except AppError as exc:
+        assert exc.code == "AMOUNT_REQUIRED"
 
 
 def test_min_amount_rejected(client):
@@ -36,6 +50,8 @@ def test_create_and_user_paid_does_not_credit(client):
     assert data["card_masked"].endswith("5509")
     assert data.get("card_copy")
     assert data["card_copy"].replace(" ", "") == "5599002144955509"
+    assert data["card_copy"] == "5599 0021 4495 5509"
+    assert data["yoomoney_url"] == "https://yoomoney.ru/to/4100119621450464/515"
 
     paid = client.post(f"/api/v1/trust-pay/payments/{data['public_id']}/paid", headers=headers)
     assert paid.status_code == 200, paid.text
@@ -71,6 +87,7 @@ def test_cannot_change_amount_via_query(client):
     got = client.get(f"/api/v1/trust-pay/payments/{created['public_id']}?amount=1", headers=headers).json()["data"]
     assert got["amount"] == "30.00"
     assert got["total"] == "30.90"
+    assert got["yoomoney_url"] == "https://yoomoney.ru/to/4100119621450464/30.90"
 
 
 def test_bot_topup_webhook_accepted(client):
@@ -88,3 +105,19 @@ def test_bot_topup_webhook_accepted(client):
         json={"message": {"chat": {"id": 1}, "from": {"id": 1, "first_name": "Lumina"}, "text": "10"}},
     )
     assert res2.status_code == 200
+
+
+def test_topup_reply_uses_url_not_webapp():
+    class P:
+        public_id = "TP-TEST"
+        amount = Decimal("500.00")
+        fee = Decimal("15.00")
+        total = Decimal("515.00")
+
+    text, markup = topup_reply(P())
+    assert "5599 0021 4495 5509" in text
+    assert "https://yoomoney.ru/to/4100119621450464/515" in text
+    assert markup
+    urls = [btn["url"] for row in markup["inline_keyboard"] for btn in row]
+    assert all("web_app" not in btn for row in markup["inline_keyboard"] for btn in row)
+    assert any(u.endswith("/515") for u in urls)

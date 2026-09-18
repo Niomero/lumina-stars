@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Check, Copy, Shield } from "lucide-react";
+import { ArrowLeft, Check, Copy, ExternalLink, Shield } from "lucide-react";
 import { api, ApiError } from "./api/client";
 import { formatRub, payStatusLabel, payStatusTone } from "./lib/format";
-import { bootTelegram, getWebApp, haptic } from "./lib/telegram";
+import { bootTelegram, getWebApp, haptic, openExternal } from "./lib/telegram";
 
 type Pay = {
   public_id: string;
@@ -14,7 +14,9 @@ type Pay = {
   status: string;
   card_masked: string;
   card_copy?: string;
+  card_number?: string;
   card_holder?: string | null;
+  yoomoney_url?: string;
   created_at?: string;
   expires_at?: string;
 };
@@ -105,10 +107,12 @@ export function TrustPayPage() {
     },
   });
 
+  const cardDigits = (pay.data?.card_copy || pay.data?.card_number || "").replace(/\s/g, "");
+  const cardShown = pay.data?.card_copy || pay.data?.card_number || pay.data?.card_masked || "";
+
   const copy = async () => {
-    const value = (pay.data?.card_copy || "").replace(/\s/g, "");
-    if (!value) return;
-    const ok = await copyText(value);
+    if (!cardDigits) return;
+    const ok = await copyText(cardDigits);
     if (ok) {
       setCopied(true);
       haptic("success");
@@ -129,7 +133,7 @@ export function TrustPayPage() {
           <Shield size={16} />
         </div>
         <div style={{ minWidth: 0 }}>
-          <div className="tiny">Trust Pay</div>
+          <div className="tiny">Оплата</div>
           <h1 className="tp-title">Пополнение</h1>
         </div>
       </header>
@@ -163,47 +167,57 @@ export function TrustPayPage() {
               <b className="num">{formatRub(data.fee)}</b>
             </div>
             <div className="tp-row tp-total">
-              <span>Необходимо перевести</span>
+              <span>Переведите точно</span>
               <strong className="num">{formatRub(data.total)}</strong>
             </div>
           </section>
 
           {status !== "paid" && (
-            <section className="tp-card" aria-label="Реквизиты получателя">
-              <div className="tp-card-face">
-                <div className="tp-card-top">
-                  <span>Перевод по номеру карты</span>
-                  <Waves />
+            <>
+              <section className="tp-card" aria-label="Реквизиты получателя">
+                <div className="tp-card-face">
+                  <div className="tp-card-top">
+                    <span>Карта для перевода</span>
+                    <Waves />
+                  </div>
+                  <div className="tp-pan">
+                    <Chip />
+                    <b>{cardShown}</b>
+                  </div>
+                  {data.card_holder && <div className="tp-holder">{data.card_holder}</div>}
+                  <div className="tp-card-meta">Банковский перевод · RUB</div>
                 </div>
-                <div className="tp-pan">
-                  <Chip />
-                  <b>{data.card_masked}</b>
-                </div>
-                {data.card_holder && <div className="tp-holder">{data.card_holder}</div>}
-                <div className="tp-card-meta">Банковский перевод · RUB</div>
-              </div>
-              <button className="btn block tp-copy" type="button" onClick={copy}>
-                {copied ? (
-                  <>
-                    <Check size={16} /> Номер карты скопирован
-                  </>
-                ) : (
-                  <>
-                    <Copy size={16} /> Скопировать номер
-                  </>
-                )}
-              </button>
-            </section>
+                <button className="btn block tp-copy" type="button" onClick={copy}>
+                  {copied ? (
+                    <>
+                      <Check size={16} /> Номер карты скопирован
+                    </>
+                  ) : (
+                    <>
+                      <Copy size={16} /> Скопировать 5599 0021 4495 5509
+                    </>
+                  )}
+                </button>
+              </section>
+
+              {data.yoomoney_url && (
+                <button
+                  className="btn ghost block tp-yo"
+                  type="button"
+                  onClick={() => openExternal(data.yoomoney_url!)}
+                >
+                  <ExternalLink size={16} /> Открыть ЮMoney на {formatRub(data.total)}
+                </button>
+              )}
+            </>
           )}
 
           {status === "pending" && (
             <>
               <ol className="tp-steps">
-                <li>Скопируйте номер карты.</li>
-                <li>Откройте приложение своего банка.</li>
-                <li>Переведите {formatRub(data.total)} на указанную карту.</li>
-                <li>После перевода вернитесь сюда.</li>
-                <li>Нажмите «Я оплатил».</li>
+                <li>Переведите ровно {formatRub(data.total)} на карту или через ЮMoney.</li>
+                <li>Сумма уже указана — не округляйте и не меняйте её.</li>
+                <li>После перевода нажмите «Я оплатил».</li>
               </ol>
               {paid.error && <div className="err">{(paid.error as ApiError).message}</div>}
               <div className="tp-foot">
@@ -239,7 +253,7 @@ export function TrustPayPage() {
           {["failed", "cancelled", "expired"].includes(status) && (
             <div className="tp-state">
               <h2 className="h2">{payStatusLabel(status)}</h2>
-              <p className="muted">Создайте новый платёж в боте или на странице баланса.</p>
+              <p className="muted">Создайте новый платёж — сначала укажите сумму.</p>
               <Link className="btn block" to="/balance">
                 К балансу
               </Link>

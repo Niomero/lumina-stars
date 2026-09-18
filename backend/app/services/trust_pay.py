@@ -51,6 +51,20 @@ def copy_card(card: str) -> str:
     return " ".join(d[i : i + 4] for i in range(0, len(d), 4))
 
 
+def yoomoney_url(amount) -> str:
+    """Amount is mandatory — never emit /0."""
+    settings = get_settings()
+    wallet = digits(settings.yoomoney_wallet) or "4100119621450464"
+    total = money(amount)
+    if total <= 0:
+        raise AppError("AMOUNT_REQUIRED", "Укажите сумму пополнения, прежде чем открыть оплату")
+    if total == total.to_integral_value():
+        amt = str(int(total))
+    else:
+        amt = f"{total:.2f}"
+    return f"https://yoomoney.ru/to/{wallet}/{amt}"
+
+
 def pay_url(public_id: str) -> str:
     settings = get_settings()
     base = (settings.telegram_webapp_url or "").rstrip("/")
@@ -77,10 +91,30 @@ def _expire(pay: Payment) -> Payment:
     return pay
 
 
+def topup_reply(pay: Payment) -> tuple[str, dict | None]:
+    settings = get_settings()
+    card = copy_card(settings.trust_pay_card_number)
+    ym = yoomoney_url(pay.total)
+    page = pay_url(pay.public_id or "")
+    text = (
+        "Пополнение баланса\n"
+        f"Зачислим: {money(pay.amount):.2f} ₽\n"
+        f"Комиссия 3%: {money(pay.fee):.2f} ₽\n"
+        f"К переводу: {money(pay.total):.2f} ₽\n\n"
+        f"Карта: {card}\n"
+        f"ЮMoney: {ym}"
+    )
+    buttons: list[list[dict]] = []
+    if page.startswith("https://"):
+        buttons.append([{"text": "Оплата картой", "url": page}])
+    buttons.append([{"text": "Оплатить ЮMoney", "url": ym}])
+    return text, {"inline_keyboard": buttons}
+
 
 def payment_public(pay: Payment, *, include_card: bool = False, user: User | None = None) -> dict:
     settings = get_settings()
     _expire(pay)
+    card = copy_card(settings.trust_pay_card_number)
     data = {
         "id": pay.id,
         "public_id": pay.public_id,
@@ -93,13 +127,15 @@ def payment_public(pay: Payment, *, include_card: bool = False, user: User | Non
         "paid_at": pay.paid_at.isoformat() if pay.paid_at else None,
         "expires_at": pay.expires_at.isoformat() if pay.expires_at else None,
         "pay_url": pay_url(pay.public_id or ""),
+        "yoomoney_url": yoomoney_url(pay.total),
         "min_amount": settings.trust_pay_min_amount,
         "fee_percent": settings.trust_pay_fee_percent,
         "card_masked": mask_card(settings.trust_pay_card_number),
         "card_holder": settings.trust_pay_card_holder or None,
     }
     if include_card:
-        data["card_copy"] = copy_card(settings.trust_pay_card_number)
+        data["card_copy"] = card
+        data["card_number"] = card
     if user is not None:
         data["telegram_id"] = user.telegram_id
         data["username"] = user.username
@@ -132,7 +168,7 @@ def create_payment(db: Session, user: User, amount, *, actor_id: int | None = No
         status="pending",
         credited=False,
         expires_at=utcnow() + timedelta(minutes=settings.trust_pay_expire_minutes),
-        payload={"source": "trust_pay"},
+        payload={"source": "trust_pay", "yoomoney_url": yoomoney_url(total)},
     )
     db.add(pay)
     write_audit(
@@ -256,8 +292,7 @@ def _notify_paid(db: Session, pay: Payment, balance_after: Decimal) -> None:
     if not settings.telegram_bot_token:
         return
     text = (
-        "TRUST PAY\n"
-        "Платёж успешно подтверждён.\n"
+        "Платёж подтверждён.\n"
         f"Пополнение: {money(pay.amount):.2f} ₽\n"
         f"Комиссия: {money(pay.fee):.2f} ₽\n"
         f"ID платежа: {pay.public_id}\n"

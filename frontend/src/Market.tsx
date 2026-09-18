@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Check, Minus, Plus } from "lucide-react";
@@ -21,6 +21,7 @@ type Asset = {
   digits?: string;
   kind: string;
   product_id?: number;
+  image?: string | null;
 };
 
 const GLYPHS: Record<string, ReactNode> = {
@@ -137,8 +138,44 @@ const GLYPHS: Record<string, ReactNode> = {
   ),
 };
 
-export function GiftArt({ tone, motif, name, large }: { tone?: number; motif?: string; name?: string; large?: boolean }) {
+function prettyName(kind: string, name?: string, address?: string) {
+  const raw = (name || "").trim();
+  if (kind === "username_rent") {
+    const handle = raw.replace(/^@/, "") || (address || "").replace(/^@/, "");
+    if (handle.startsWith("EQ")) return "Username";
+    return `@${handle}`;
+  }
+  if (kind === "number_rent") {
+    if (!raw || raw.startsWith("EQ")) return "Номер";
+    return raw.startsWith("+") ? raw : `+${raw}`;
+  }
+  if (!raw || raw.startsWith("EQ")) return "Подарок";
+  return raw;
+}
+
+export function GiftArt({
+  tone,
+  motif,
+  name,
+  large,
+  image,
+}: {
+  tone?: number;
+  motif?: string;
+  name?: string;
+  large?: boolean;
+  image?: string | null;
+}) {
+  const [broken, setBroken] = useState(false);
   const key = motif || "gift";
+  if (image && !broken) {
+    return (
+      <div className={`gift-art photo ${large ? "lg" : ""}`} aria-hidden>
+        <img src={image} alt="" referrerPolicy="no-referrer" onError={() => setBroken(true)} />
+        {name ? <span className="sr-only">{name}</span> : null}
+      </div>
+    );
+  }
   return (
     <div className={`gift-art ${large ? "lg" : ""}`} style={{ ["--tone" as string]: String(tone ?? 210) }} aria-hidden>
       <div className="gift-plate">{GLYPHS[key] || GLYPHS.gift}</div>
@@ -238,11 +275,12 @@ export function GalleryHome({ me }: { me: { first_name?: string; balance: string
         <Link to="/rent/nft" className="subtle">Смотреть</Link>
       </div>
       {nfts.isLoading && <div className="gift-grid">{[1, 2, 3, 4].map((i) => <div key={i} className="skeleton tall" />)}</div>}
+      {!nfts.isLoading && featured.length === 0 && <div className="empty">Подарки загружаются с витрины</div>}
       <div className="gift-grid">
         {featured.map((g: Asset) => (
           <Link key={g.address} to={`/asset/nft_rent/${g.address}`} className="panel gift">
-            <GiftArt tone={g.tone} motif={g.motif} name={g.name} />
-            <b>{g.name}</b>
+            <GiftArt tone={g.tone} motif={g.motif} name={g.name} image={g.image} />
+            <b>{prettyName("nft_rent", g.name, g.address)}</b>
             <div className="muted">{formatRub(g.price_per_day)} / день</div>
           </Link>
         ))}
@@ -276,8 +314,13 @@ export function RentNftPage({ mode }: { mode: "rent" | "buy" }) {
   const [col, setCol] = useState<string>("");
   const [sort, setSort] = useState("");
   const cols = useQuery({ queryKey: [colsPath], queryFn: () => api(colsPath) });
+  const collections = cols.data?.items || [];
+  useEffect(() => {
+    if (!col && collections[0]?.address) setCol(collections[0].address);
+  }, [collections, col]);
   const list = useQuery({
     queryKey: [path, col, sort],
+    enabled: mode === "buy" ? true : Boolean(col) || collections.length === 0,
     queryFn: () => {
       const q = new URLSearchParams();
       if (col) q.set("collection_address", col);
@@ -291,13 +334,10 @@ export function RentNftPage({ mode }: { mode: "rent" | "buy" }) {
     <div className="grid">
       <h1 className="h1 display">{mode === "buy" ? "Купить NFT" : "Аренда NFT"}</h1>
       <p className="muted lead">
-        {mode === "buy"
-          ? "Gift NFT. DEMO — без on-chain покупки."
-          : "Аренда Gift NFT. DEMO — без блокчейн-операции."}
+        {mode === "buy" ? "Gift NFT с живой витрины Fragment." : "Аренда Gift NFT. Каталог с tgstars.tg."}
       </p>
       <div className="chips">
-        <button className={!col ? "on" : ""} onClick={() => setCol("")}>Все</button>
-        {(cols.data?.items || []).map((c: any) => (
+        {collections.map((c: any) => (
           <button key={c.address} className={col === c.address ? "on" : ""} onClick={() => setCol(c.address)}>{c.name}</button>
         ))}
       </div>
@@ -310,14 +350,17 @@ export function RentNftPage({ mode }: { mode: "rent" | "buy" }) {
       <div className="gift-grid">
         {(list.data?.items || []).map((g: Asset) => (
           <Link key={g.address} to={`/asset/${kind}/${g.address}`} className="panel gift">
-            <GiftArt tone={g.tone} motif={g.motif} name={g.name} />
-            <b>{g.name}</b>
+            <GiftArt tone={g.tone} motif={g.motif} name={g.name} image={g.image} />
+            <b>{prettyName(kind, g.name, g.address)}</b>
             <div className="muted">
               {mode === "buy" ? formatRub(g.buy_price || g.price_per_day) : `${formatRub(g.price_per_day)} / день`}
             </div>
           </Link>
         ))}
       </div>
+      {!list.isLoading && !(list.data?.items || []).length && (
+        <div className="empty">{list.data?.error || "В этой коллекции пока пусто"}</div>
+      )}
     </div>
   );
 }
@@ -340,7 +383,7 @@ export function RentListPage({ kind }: { kind: "username_rent" | "number_rent" }
     <div className="grid">
       <h1 className="h1 display">{kind === "username_rent" ? "Username" : "Номера"}</h1>
       <p className="muted lead">
-        {kind === "username_rent" ? "Коллекционные имена. Аренда в DEMO без передачи." : "Анонимные Telegram-номера. DEMO без выдачи."}
+        {kind === "username_rent" ? "Коллекционные Telegram-имена с витрины tgstars.tg." : "Анонимные Telegram-номера +888 с витрины tgstars.tg."}
       </p>
       {kind === "username_rent" && (
         <>
@@ -357,12 +400,15 @@ export function RentListPage({ kind }: { kind: "username_rent" | "number_rent" }
       {(list.data?.items || []).map((g: Asset) => (
         <Link key={g.address} to={`/asset/${kind}/${g.address}`} className="panel handle-row between">
           <div>
-            <b className="display handle">{kind === "username_rent" ? `@${g.name}` : g.name}</b>
+            <b className="display handle">{prettyName(kind, g.name, g.address)}</b>
             <div className="muted">{formatRub(g.price_per_day)} / день</div>
           </div>
           <span className="badge">Аренда</span>
         </Link>
       ))}
+      {!list.isLoading && !(list.data?.items || []).length && (
+        <div className="empty">{list.data?.error || "Список пуст"}</div>
+      )}
     </div>
   );
 }
@@ -374,7 +420,7 @@ function Aftercare({ order, kind }: { order: any; kind: string }) {
   const [note, setNote] = useState("");
   const connect = useMutation({
     mutationFn: () => api("/rent/connect", { method: "POST", body: JSON.stringify({ order_id: order.id, tonconnect_url: url || "tc://demo" }) }),
-    onSuccess: () => setNote("TON Connect сохранён (DEMO)"),
+    onSuccess: () => setNote("TON Connect сохранён"),
   });
   const transfer = useMutation({
     mutationFn: (destination: "telegram" | "wallet") =>
@@ -387,7 +433,7 @@ function Aftercare({ order, kind }: { order: any; kind: string }) {
           wallet_address: wallet,
         }),
       }),
-    onSuccess: (d: any) => setNote(d.demo ? `Перевод записан (DEMO) → ${d.target}` : "Передано"),
+    onSuccess: (d: any) => setNote(d.demo ? `Перевод записан → ${d.target}` : "Передано"),
   });
   if (kind === "nft_buy") {
     return (
@@ -407,7 +453,7 @@ function Aftercare({ order, kind }: { order: any; kind: string }) {
       <div className="grid aftercare">
         <div className="tiny">TON Connect</div>
         <input placeholder="tc:// ссылка с Fragment" value={url} onChange={(e) => setUrl(e.target.value)} />
-        <button className="btn ghost block" disabled={connect.isPending} onClick={() => connect.mutate()}>Привязать (DEMO)</button>
+        <button className="btn ghost block" disabled={connect.isPending} onClick={() => connect.mutate()}>Привязать</button>
         {note && <div className="muted">{note}</div>}
       </div>
     );
@@ -421,7 +467,7 @@ export function AssetPage({ me }: { me: { balance: string; username?: string } }
   const qc = useQueryClient();
   const catalog = useQuery({ queryKey: ["catalog"], queryFn: () => api("/catalog") });
   const product = productByKind(catalog.data?.items, kind);
-  const [days, setDays] = useState(kind === "nft_buy" ? 1 : 7);
+  const [days, setDays] = useState(kind === "nft_buy" ? 1 : 1);
   const [confirm, setConfirm] = useState(false);
   const [done, setDone] = useState<any>(null);
   const quote = useQuery({
@@ -431,6 +477,11 @@ export function AssetPage({ me }: { me: { balance: string; username?: string } }
   });
   const min = quote.data?.min_quantity || 1;
   const max = quote.data?.max_quantity || 90;
+  useEffect(() => {
+    if (quote.data?.min_quantity && days < quote.data.min_quantity) {
+      setDays(quote.data.min_quantity);
+    }
+  }, [quote.data?.min_quantity, days]);
   const productId = quote.data?.product_id || product?.id;
   const buy = useMutation({
     mutationFn: () =>
@@ -452,25 +503,36 @@ export function AssetPage({ me }: { me: { balance: string; username?: string } }
     },
   });
   const after = Number(me.balance) - Number(quote.data?.total || 0);
-  if (!quote.data) return <div className="skeleton tall" />;
+  const title = prettyName(kind, quote.data?.name, address);
+  const isHandle = kind === "username_rent" || kind === "number_rent";
+  if (!quote.data) return <div className="asset-page"><div className="skeleton tall" /></div>;
+  const presets = Array.from(new Set([min, 7, 14, 30, 60, 90, max]))
+    .filter((d) => d >= min && d <= max)
+    .sort((a, b) => a - b);
   return (
-    <div className="grid">
-      <button className="btn ghost" onClick={() => nav(-1)}><ArrowLeft size={16} /> Назад</button>
+    <div className="grid asset-page">
+      <button className="back-link" type="button" onClick={() => nav(-1)}>
+        <ArrowLeft size={16} /> Назад
+      </button>
       <div className="panel asset-hero">
-        <GiftArt tone={quote.data.tone} motif={quote.data.motif} name={quote.data.name} large />
-        <h1 className="h1 display">{quote.data.name}</h1>
-        <div className="muted mono">{address}</div>
+        {isHandle ? (
+          <div className="handle-hero">{title}</div>
+        ) : (
+          <GiftArt tone={quote.data.tone} motif={quote.data.motif} name={title} image={quote.data.image} large />
+        )}
+        {!isHandle ? <h1 className="h1 display">{title}</h1> : null}
+        {quote.data.collection_name ? <div className="muted">{quote.data.collection_name}</div> : null}
       </div>
       {kind !== "nft_buy" && (
         <>
           <div className="qty">
-            <button onClick={() => setDays(Math.max(min, days - 1))}><Minus size={16} /></button>
+            <button type="button" onClick={() => setDays(Math.max(min, days - 1))}><Minus size={16} /></button>
             <b className="display num qty-val">{days} дн.</b>
-            <button onClick={() => setDays(Math.min(max, days + 1))}><Plus size={16} /></button>
+            <button type="button" onClick={() => setDays(Math.min(max, days + 1))}><Plus size={16} /></button>
           </div>
           <div className="presets">
-            {[7, 14, 30, 60].filter((d) => d >= min && d <= max).map((d) => (
-              <button key={d} className={days === d ? "on" : ""} onClick={() => setDays(d)}>{d} дней</button>
+            {presets.map((d) => (
+              <button key={d} className={days === d ? "on" : ""} onClick={() => setDays(d)}>{d} дн.</button>
             ))}
           </div>
         </>
@@ -481,14 +543,16 @@ export function AssetPage({ me }: { me: { balance: string; username?: string } }
         <div className="between"><span className="muted">Баланс после</span><span className="num">{formatRub(after)}</span></div>
       </div>
       {buy.error && <div className="err">{(buy.error as ApiError).message}</div>}
-      <button className="btn block" disabled={!productId} onClick={() => { haptic("medium"); setConfirm(true); }}>
-        {kind === "nft_buy" ? "Купить" : "Арендовать"} за {formatRub(quote.data.total)}
-      </button>
+      <div className="asset-cta">
+        <button className="btn block" disabled={!productId} onClick={() => { haptic("medium"); setConfirm(true); }}>
+          {kind === "nft_buy" ? "Купить" : "Арендовать"} за {formatRub(quote.data.total)}
+        </button>
+      </div>
       {confirm && (
         <div className="sheet open" onClick={() => setConfirm(false)}>
           <div className="panel grid" onClick={(e) => e.stopPropagation()}>
             <h2 className="h2 display">Подтвердить заказ?</h2>
-            <div>{quote.data.name}</div>
+            <div>{title}</div>
             {kind !== "nft_buy" && <div>{days} дней</div>}
             <div className="h2">{formatRub(quote.data.total)}</div>
             <div className="row">
@@ -501,7 +565,7 @@ export function AssetPage({ me }: { me: { balance: string; username?: string } }
       {done && (
         <Success
           order={done}
-          title={quote.data.name}
+          title={title}
           extra={<Aftercare order={done} kind={kind} />}
         />
       )}

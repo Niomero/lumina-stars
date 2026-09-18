@@ -12,7 +12,7 @@ from app.core.errors import AppError, AuthError
 from app.db.session import SessionLocal
 from app.models import BotIntent
 from app.services.auth import provision_user
-from app.services.trust_pay import create_payment, pay_url
+from app.services.trust_pay import create_payment, topup_reply
 
 log = logging.getLogger("BOT")
 router = APIRouter(prefix="/telegram", tags=["telegram"])
@@ -76,7 +76,7 @@ def handle_bot_update(db: Session, body: dict) -> None:
     if text.startswith("/start"):
         send(
             {
-                "text": "Lumina — бутик Telegram Stars.\nПополнение баланса — через TRUST PAY.",
+                "text": "Lumina — бутик Telegram Stars.\nПополнение — перевод на карту или ЮMoney. Сначала укажите сумму.",
                 "reply_markup": keyboard,
             }
         )
@@ -88,14 +88,14 @@ def handle_bot_update(db: Session, body: dict) -> None:
             intent.intent = "topup_amount"
             db.merge(intent)
             db.commit()
-        send({"text": "Введите сумму пополнения в ₽", "reply_markup": keyboard})
+        send({"text": "Введите сумму пополнения в ₽. Без суммы ссылка на оплату не выдаётся.", "reply_markup": keyboard})
         return
 
     intent_row = db.get(BotIntent, int(tg_id)) if tg_id else None
     if intent_row and intent_row.intent == "topup_amount":
         amount = _parse_amount(text)
         if amount is None:
-            send({"text": "Введите сумму числом, например 500"})
+            send({"text": "Введите сумму числом, например 500. Ссылка без суммы не создаётся."})
             return
         if not user:
             send({"text": "Не удалось определить пользователя Telegram"})
@@ -107,25 +107,8 @@ def handle_bot_update(db: Session, body: dict) -> None:
             return
         intent_row.intent = ""
         db.commit()
-        url = pay_url(pay.public_id or "")
-        markup = None
-        if webapp and url.startswith("https://"):
-            markup = {"inline_keyboard": [[{"text": "Перейти к оплате", "web_app": {"url": url}}]]}
-        extra = "\nНажмите кнопку ниже, чтобы перейти к оплате."
-        if not markup:
-            extra = f"\nОткройте оплату: {url}" if url.startswith("http") else "\nОткройте магазин → Баланс, чтобы оплатить."
-        send(
-            {
-                "text": (
-                    "TRUST PAY\n"
-                    f"Сумма пополнения: {pay.amount:.2f} ₽\n"
-                    f"Комиссия: {pay.fee:.2f} ₽\n"
-                    f"К оплате: {pay.total:.2f} ₽"
-                    f"{extra}"
-                ),
-                "reply_markup": markup,
-            }
-        )
+        text_out, markup = topup_reply(pay)
+        send({"text": text_out, "reply_markup": markup})
 
 
 @router.post("/webhook/{secret}")
