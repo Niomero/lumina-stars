@@ -7,8 +7,8 @@ export function bootTelegram() {
   if (!tg) return null;
   tg.ready?.();
   tg.expand?.();
-  tg.setHeaderColor?.("#07070c");
-  tg.setBackgroundColor?.("#07070c");
+  tg.setHeaderColor?.("#0b0a09");
+  tg.setBackgroundColor?.("#0b0a09");
   return tg;
 }
 

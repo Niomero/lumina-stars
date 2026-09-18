@@ -16,7 +16,8 @@ router = APIRouter(prefix="/orders", tags=["orders"])
 class CreateOrderIn(BaseModel):
     product_id: int
     quantity: int = Field(ge=1)
-    recipient: str
+    recipient: str = ""
+    nft_address: str | None = None
     idempotency_key: str = Field(min_length=8, max_length=80)
 
 
@@ -29,6 +30,7 @@ def create_order(body: CreateOrderIn, user: User = Depends(get_current_user), db
         quantity=body.quantity,
         recipient=body.recipient,
         idempotency_key=body.idempotency_key,
+        nft_address=body.nft_address,
     )
     return {
         "success": True,

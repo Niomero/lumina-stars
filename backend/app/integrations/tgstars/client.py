@@ -115,3 +115,82 @@ class TgStarsClient:
         if days is not None:
             params["days"] = days
         return self.request("GET", "/rent/nft/rate", params=params)
+
+    def get_username_rent_rate(self, nft_address: str, days: int | None = None) -> dict:
+        params: dict[str, Any] = {"nft_address": nft_address}
+        if days is not None:
+            params["days"] = days
+        return self.request("GET", "/rent/username/rate", params=params)
+
+    def get_number_rent_rate(self, nft_address: str, days: int | None = None) -> dict:
+        params: dict[str, Any] = {"nft_address": nft_address}
+        if days is not None:
+            params["days"] = days
+        return self.request("GET", "/rent/number/rate", params=params)
+
+    def create_nft_rent(self, nft_address: str, days: int | None = None) -> dict:
+        body: dict[str, Any] = {"nft_address": nft_address}
+        if days is not None:
+            body["days"] = days
+        return self.request("POST", "/orders/rent/nft", json=body)
+
+    def create_username_rent(self, nft_address: str, days: int | None = None) -> dict:
+        body: dict[str, Any] = {"nft_address": nft_address}
+        if days is not None:
+            body["days"] = days
+        return self.request("POST", "/orders/rent/username", json=body)
+
+    def create_number_rent(self, nft_address: str, days: int | None = None) -> dict:
+        body: dict[str, Any] = {"nft_address": nft_address}
+        if days is not None:
+            body["days"] = days
+        return self.request("POST", "/orders/rent/number", json=body)
+
+    def rent_connect(self, transaction_id: int, tonconnect_url: str) -> dict:
+        return self.request(
+            "POST",
+            "/orders/rent/connect",
+            json={"transaction_id": transaction_id, "tonconnect_url": tonconnect_url},
+        )
+
+    def nft_buy_collections(self) -> dict:
+        return self.request("GET", "/nft/buy/collections")
+
+    def nft_buy_list(self, **params) -> dict:
+        clean = {k: v for k, v in params.items() if v not in (None, "")}
+        return self.request("GET", "/nft/buy/list", params=clean or None)
+
+    def nft_buy_info(self, nft_address: str) -> dict:
+        return self.request("GET", "/nft/buy/info", params={"nft_address": nft_address})
+
+    def buy_nft(self, nft_address: str) -> dict:
+        return self.request("POST", "/orders/nft/buy", json={"nft_address": nft_address})
+
+    def transfer_nft_telegram(self, transaction_id: int, username: str) -> dict:
+        return self.request(
+            "POST",
+            "/orders/nft/transfer/telegram",
+            json={"transaction_id": transaction_id, "username": username.lstrip("@")},
+        )
+
+    def transfer_nft_wallet(self, transaction_id: int, wallet_address: str) -> dict:
+        return self.request(
+            "POST",
+            "/orders/nft/transfer/wallet",
+            json={"transaction_id": transaction_id, "wallet_address": wallet_address},
+        )
+
+    def rent_nft_collections(self) -> dict:
+        return self.request("GET", "/rent/nft/collections")
+
+    def rent_nft_list(self, collection_address: str, **params) -> dict:
+        query = {"collection_address": collection_address, **{k: v for k, v in params.items() if v not in (None, "")}}
+        return self.request("GET", "/rent/nft/list", params=query)
+
+    def rent_username_list(self, **params) -> dict:
+        clean = {k: v for k, v in params.items() if v not in (None, "")}
+        return self.request("GET", "/rent/username/list", params=clean or None)
+
+    def rent_number_list(self, **params) -> dict:
+        clean = {k: v for k, v in params.items() if v not in (None, "")}
+        return self.request("GET", "/rent/number/list", params=clean or None)

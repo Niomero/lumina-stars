@@ -42,7 +42,7 @@ def catalog(
         items.sort(key=lambda x: float(x.get("unit_price") or 0), reverse=True)
     elif sort == "new":
         items.sort(key=lambda x: x["id"], reverse=True)
-    return {"success": True, "data": {"items": items, "categories": ["stars", "premium"]}}
+    return {"success": True, "data": {"items": items, "categories": ["stars", "premium", "nft", "username", "number"]}}
 
 
 @router.get("/products/{product_id}")

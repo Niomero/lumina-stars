@@ -36,6 +36,14 @@ class RealOrderProcessor(OrderProcessor):
             result = self.client.create_stars_order(recipient, order.quantity)
         elif product.kind == "premium":
             result = self.client.create_premium_order(recipient, order.quantity)
+        elif product.kind == "nft_rent":
+            result = self.client.create_nft_rent(recipient, order.quantity)
+        elif product.kind == "username_rent":
+            result = self.client.create_username_rent(recipient, order.quantity)
+        elif product.kind == "number_rent":
+            result = self.client.create_number_rent(recipient, order.quantity)
+        elif product.kind == "nft_buy":
+            result = self.client.buy_nft(recipient)
         else:
             order.status = "FAILED"
             order.payload = {"error": "unsupported_product"}

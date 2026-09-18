@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, Navigate, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -9,17 +9,19 @@ import {
   UserRound,
   Sparkles,
   Crown,
-  Gem,
   Plus,
   Minus,
   Check,
-  ChevronRight,
   RefreshCw,
   Shield,
+  Gift,
+  Hash,
+  AtSign,
 } from "lucide-react";
 import { api, ApiError, clearToken, getToken, setToken } from "./api/client";
 import { formatRub, statusLabel, statusTone } from "./lib/format";
 import { bootTelegram, haptic } from "./lib/telegram";
+import { AssetPage, GalleryHome, GiftArt, RentListPage, RentNftPage } from "./Market";
 
 type Me = {
   id: number;
@@ -57,7 +59,7 @@ function Shell({ me, children }: { me: Me; children: React.ReactNode }) {
     <div className={`app ${admin ? "admin" : ""}`}>
       {admin ? (
         <div className="admin-layout">
-          <aside className="sidebar glass">
+          <aside className="sidebar panel">
             <div className="row"><div className="logo-mark">L</div><b className="display">Lumina</b></div>
             {[
               ["/admin", "Дашборд"],
@@ -78,7 +80,7 @@ function Shell({ me, children }: { me: Me; children: React.ReactNode }) {
         children
       )}
       {!admin && (
-        <nav className="nav glass">
+        <nav className="nav">
           {nav.map((n) => {
             const Icon = n.icon;
             const active = n.to === "/" ? loc.pathname === "/" : loc.pathname.startsWith(n.to);
@@ -96,48 +98,26 @@ function Shell({ me, children }: { me: Me; children: React.ReactNode }) {
 }
 
 function Home({ me }: { me: Me }) {
-  const { data, isLoading } = useQuery({ queryKey: ["catalog"], queryFn: () => api("/catalog") });
-  const popular = (data?.items || []).filter((p: any) => p.popular);
-  return (
-    <div className="grid">
-      <div className="between">
-        <div>
-          <div className="tiny">Добро пожаловать</div>
-          <h1 className="h1 display">Привет, {me.first_name || "друг"}</h1>
-        </div>
-        <div className="logo-mark">L</div>
-      </div>
-      <div className="glass" style={{ padding: 20 }}>
-        <div className="tiny">Баланс</div>
-        <div className="between">
-          <div className="h1 display">{formatRub(me.balance)}</div>
-          <Link to="/balance" className="btn gold">Пополнить</Link>
-        </div>
-      </div>
-      <div className="between"><h2 className="h2 display">Популярное</h2><Link to="/catalog" className="muted">Все</Link></div>
-      {isLoading && <div className="skeleton" />}
-      <div className="grid catalog-grid">
-        {popular.map((p: any) => (
-          <Link key={p.id} to={`/product/${p.id}`} className="glass product">
-            <div className="icon-blob">{p.kind === "premium" ? <Crown size={20} /> : <Sparkles size={20} />}</div>
-            <div style={{ flex: 1 }}>
-              <b>{p.name}</b>
-              <div className="muted">{formatRub(p.unit_price)} {p.kind === "stars" ? "за звезду" : "за мес."}</div>
-            </div>
-            <ChevronRight size={16} color="#9aa3b5" />
-          </Link>
-        ))}
-      </div>
-      <Link to="/catalog" className="btn block">Быстрый заказ</Link>
-    </div>
-  );
+  return <GalleryHome me={me} />;
 }
 
+const CAT_LABEL: Record<string, string> = {
+  all: "Все",
+  stars: "Stars",
+  premium: "Premium",
+  nft: "NFT",
+  username: "Username",
+  number: "Номера",
+};
+
 function Catalog() {
+  const loc = useLocation();
+  const initial = new URLSearchParams(loc.search).get("category") || "all";
   const [q, setQ] = useState("");
-  const [category, setCategory] = useState("all");
+  const [category, setCategory] = useState(initial);
   const [sort, setSort] = useState("popular");
   const [sheet, setSheet] = useState(false);
+  useEffect(() => { setCategory(initial); }, [initial]);
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ["catalog", q, category, sort],
     queryFn: () => api(`/catalog?q=${encodeURIComponent(q)}&category=${category}&sort=${sort}`),
@@ -146,28 +126,32 @@ function Catalog() {
     <div className="grid">
       <h1 className="h1 display">Каталог</h1>
       <input placeholder="Что вы ищете?" value={q} onChange={(e) => setQ(e.target.value)} />
-      <div className="row">
-        {["all", "stars", "premium"].map((c) => (
-          <button key={c} className={`btn ${category === c ? "" : "ghost"}`} onClick={() => setCategory(c)}>
-            {c === "all" ? "Все" : c === "stars" ? "Stars" : "Premium"}
+      <div className="chips">
+        {["all", "stars", "premium", "nft", "username", "number"].map((c) => (
+          <button key={c} className={category === c ? "on" : ""} onClick={() => setCategory(c)}>
+            {CAT_LABEL[c]}
           </button>
         ))}
-        <button className="btn ghost" onClick={() => setSheet(true)}>Фильтры</button>
+        <button className="" onClick={() => setSheet(true)}>Фильтры</button>
       </div>
       {isLoading && <><div className="skeleton" /><div className="skeleton" /></>}
       {error && <div className="empty err">Не удалось загрузить данные<br /><button className="btn ghost" onClick={() => refetch()}>Повторить</button></div>}
-      {(data?.items || []).map((p: any) => (
-        <Link key={p.id} to={`/product/${p.id}`} className="glass product">
-          <div className="icon-blob">{p.kind === "premium" ? <Gem size={20} /> : <Sparkles size={20} />}</div>
-          <div style={{ flex: 1 }}>
-            <b>{p.name}</b>
-            <div className="muted">{p.description}</div>
-          </div>
-          <b>{formatRub(p.preview_total)}</b>
-        </Link>
-      ))}
+      {(data?.items || []).map((p: any) => {
+        const href = p.kind === "nft_rent" ? "/rent/nft" : p.kind === "nft_buy" ? "/nft" : p.kind === "username_rent" ? "/rent/username" : p.kind === "number_rent" ? "/rent/number" : `/product/${p.id}`;
+        const icon = p.kind === "premium" ? <Crown size={20} /> : p.kind?.includes("nft") ? <Gift size={20} /> : p.kind?.includes("username") ? <AtSign size={20} /> : p.kind?.includes("number") ? <Hash size={20} /> : <Sparkles size={20} />;
+        return (
+          <Link key={p.id} to={href} className="panel product">
+            <div className="icon-blob">{icon}</div>
+            <div style={{ flex: 1 }}>
+              <b>{p.name}</b>
+              <div className="muted">{p.description}</div>
+            </div>
+            <b className="num">{formatRub(p.preview_total)}</b>
+          </Link>
+        );
+      })}
       {sheet && (
-        <div className="sheet" onClick={() => setSheet(false)}>
+        <div className="sheet open" onClick={() => setSheet(false)}>
           <div className="panel grid" onClick={(e) => e.stopPropagation()}>
             <h2 className="h2">Сортировка</h2>
             {[
@@ -218,24 +202,25 @@ function ProductPage({ me }: { me: Me }) {
       qc.invalidateQueries({ queryKey: ["me"] });
     },
   });
-  if (isLoading || !data) return <div className="skeleton" />;
+  if (isLoading || !data) return <div className="skeleton tall" />;
   const presets = data.presets || [50, 100, 250, 500, 1000];
   const after = Number(me.balance) - Number(data.total);
+  const motif = data.kind === "premium" ? "diamond" : "star";
   return (
     <div className="grid">
       <button className="btn ghost" onClick={() => nav(-1)}>Назад</button>
-      <div className="glass" style={{ padding: 20 }}>
-        <div className="icon-blob" style={{ width: 64, height: 64 }}><Sparkles /></div>
+      <div className="panel asset-hero">
+        <GiftArt tone={data.kind === "premium" ? 42 : 210} motif={motif} large />
         <h1 className="h1 display">{data.name}</h1>
-        <p className="muted">{data.description}</p>
+        <p className="muted lead">{data.description}</p>
         <div className="tiny">Текущая цена</div>
-        <div className="h2">{formatRub(data.unit_price)} {data.kind === "stars" ? " / звезда" : " / мес."}</div>
+        <div className="h2 num">{formatRub(data.unit_price)} {data.kind === "stars" ? " / звезда" : " / мес."}</div>
       </div>
       {data.kind === "stars" && (
         <>
           <div className="qty">
             <button onClick={() => setQty(Math.max(data.min_quantity, qty - data.step))}><Minus size={16} /></button>
-            <b style={{ fontSize: 28 }} className="display">{qty}</b>
+            <b className="display num qty-val">{qty}</b>
             <button onClick={() => setQty(Math.min(data.max_quantity, qty + data.step))}><Plus size={16} /></button>
           </div>
           <div className="presets">
@@ -246,15 +231,15 @@ function ProductPage({ me }: { me: Me }) {
         </>
       )}
       <input placeholder="Username получателя без @" value={recipient} onChange={(e) => setRecipient(e.target.value.replace("@", ""))} />
-      <div className="glass" style={{ padding: 16 }}>
+      <div className="panel pad">
         <div className="between"><span className="muted">Итог</span><b>{data.quantity} × {formatRub(data.unit_price)}</b></div>
-        <div className="between"><span className="muted">К оплате</span><b className="h2">{formatRub(data.total)}</b></div>
-        <div className="between"><span className="muted">Баланс</span><span>{formatRub(me.balance)}</span></div>
+        <div className="between"><span className="muted">К оплате</span><b className="h2 num">{formatRub(data.total)}</b></div>
+        <div className="between"><span className="muted">Баланс</span><span className="num">{formatRub(me.balance)}</span></div>
       </div>
       {buy.error && <div className="err">{(buy.error as ApiError).message}</div>}
-      <button className="btn block gold" onClick={() => { haptic("medium"); setConfirm(true); }}>Купить за {formatRub(data.total)}</button>
+      <button className="btn block" onClick={() => { haptic("medium"); setConfirm(true); }}>Купить за {formatRub(data.total)}</button>
       {confirm && (
-        <div className="sheet" onClick={() => setConfirm(false)}>
+        <div className="sheet open" onClick={() => setConfirm(false)}>
           <div className="panel grid" onClick={(e) => e.stopPropagation()}>
             <h2 className="h2 display">Подтвердить заказ?</h2>
             <div>Товар: {data.name}</div>
@@ -269,15 +254,15 @@ function ProductPage({ me }: { me: Me }) {
         </div>
       )}
       {done && (
-        <div className="sheet">
-          <div className="panel grid" style={{ textAlign: "center" }}>
+        <div className="sheet open">
+          <div className="panel grid success-sheet">
             <div className="success-mark"><Check size={40} /></div>
             <h2 className="h2 display">Заказ одобрен</h2>
             <div className="muted">Заказ передан</div>
-            <div>Номер заказа: #{done.public_id}</div>
+            <div className="ticket-line">#{done.public_id}</div>
             <div>Товар: {data.name}</div>
             <div>Количество: {done.quantity}</div>
-            <div>Сумма: {formatRub(done.total_price)}</div>
+            <div className="h2">{formatRub(done.total_price)}</div>
             <Link className="btn block" to={`/orders/${done.public_id}`}>Посмотреть заказ</Link>
           </div>
         </div>
@@ -297,13 +282,13 @@ function Orders() {
     <div className="grid">
       <h1 className="h1 display">Заказы</h1>
       {items.map((o: any) => (
-        <Link key={o.id} to={`/orders/${o.public_id}`} className="glass product">
+        <Link key={o.id} to={`/orders/${o.public_id}`} className="panel product">
           <div>
             <b>#{o.public_id}</b>
             <div className="muted">{o.product?.name} · {o.quantity}</div>
           </div>
           <div style={{ textAlign: "right" }}>
-            <div>{formatRub(o.total_price)}</div>
+            <div className="num">{formatRub(o.total_price)}</div>
             <span className={`badge ${statusTone(o.status)}`}>{statusLabel(o.status)}</span>
           </div>
         </Link>
@@ -319,13 +304,13 @@ function OrderPage() {
   return (
     <div className="grid">
       <h1 className="h1 display">Заказ #{data.public_id}</h1>
-      <div className="glass" style={{ padding: 16 }}>
+      <div className="panel pad">
         <div>{data.product?.name}</div>
         <div className="muted">Количество: {data.quantity}</div>
-        <div>Итог: {formatRub(data.total_price)}</div>
+        <div className="h2 num">Итог: {formatRub(data.total_price)}</div>
         <span className={`badge ${statusTone(data.status)}`}>{statusLabel(data.status)}</span>
       </div>
-      <div className="glass" style={{ padding: 16 }}>
+      <div className="panel pad">
         {(data.timeline || []).map((s: any, i: number) => (
           <div key={s.key} className="row" style={{ opacity: s.done ? 1 : 0.4, padding: "8px 0" }}>
             <div className="icon-blob" style={{ width: 28, height: 28, borderRadius: 10 }}>{s.done ? <Check size={14} /> : i + 1}</div>
@@ -346,21 +331,21 @@ function Balance({ me }: { me: Me }) {
   });
   return (
     <div className="grid">
-      <div className="glass" style={{ padding: 24, textAlign: "center" }}>
+      <div className="panel ledger" style={{ textAlign: "center" }}>
         <div className="tiny">Баланс</div>
-        <div className="h1 display" style={{ fontSize: 40 }}>{formatRub(me.balance)}</div>
-        <button className="btn gold" onClick={() => deposit.mutate()} disabled={deposit.isPending}>Пополнить на 1 000 ₽</button>
+        <div className="h1 display num" style={{ fontSize: 40 }}>{formatRub(me.balance)}</div>
+        <button className="btn" onClick={() => deposit.mutate()} disabled={deposit.isPending}>Пополнить на 1 000 ₽</button>
         <div className="muted" style={{ marginTop: 8 }}>Демо-пополнение</div>
       </div>
       <h2 className="h2">История операций</h2>
       {(data?.items || []).length === 0 && <div className="empty">История операций пуста</div>}
       {(data?.items || []).map((t: any) => (
-        <div key={t.id} className="between glass" style={{ padding: 14 }}>
+        <div key={t.id} className="between panel pad">
           <div>
             <b>{t.description}</b>
             <div className="muted">{new Date(t.created_at).toLocaleString("ru")}</div>
           </div>
-          <b style={{ color: Number(t.amount) < 0 ? "var(--rose)" : "var(--mint)" }}>
+          <b className="num" style={{ color: Number(t.amount) < 0 ? "var(--rose)" : "var(--mint)" }}>
             {Number(t.amount) > 0 ? "+" : ""}{formatRub(t.amount)}
           </b>
         </div>
@@ -375,7 +360,7 @@ function Referrals() {
   return (
     <div className="grid">
       <h1 className="h1 display">Рефералы</h1>
-      <div className="glass" style={{ padding: 18 }}>
+      <div className="panel pad">
         <div className="tiny">Ваш код</div>
         <h2 className="h2">{data.code}</h2>
         <div className="muted">Награда {data.percent}% с покупок друзей</div>
@@ -383,8 +368,8 @@ function Referrals() {
         <button className="btn block" onClick={() => navigator.clipboard.writeText(data.link)}>Скопировать ссылку</button>
       </div>
       <div className="row">
-        <div className="glass" style={{ padding: 16, flex: 1 }}><div className="tiny">Приглашено</div><b>{data.invited}</b></div>
-        <div className="glass" style={{ padding: 16, flex: 1 }}><div className="tiny">Заработано</div><b>{formatRub(data.earned)}</b></div>
+        <div className="panel pad" style={{ flex: 1 }}><div className="tiny">Приглашено</div><b>{data.invited}</b></div>
+        <div className="panel pad" style={{ flex: 1 }}><div className="tiny">Заработано</div><b>{formatRub(data.earned)}</b></div>
       </div>
     </div>
   );
@@ -399,7 +384,7 @@ function Profile({ me }: { me: Me }) {
   ];
   return (
     <div className="grid">
-      <div className="glass product">
+      <div className="panel product">
         <div className="logo-mark">{(me.first_name || "L")[0]}</div>
         <div>
           <h2 className="h2">{me.first_name}</h2>
@@ -407,7 +392,7 @@ function Profile({ me }: { me: Me }) {
         </div>
       </div>
       {cards.map(([to, t, s]) => (
-        <Link key={to} to={to} className="glass between" style={{ padding: 16 }}>
+        <Link key={to} to={to} className="panel between pad">
           <b>{t}</b><span className="muted">{s}</span>
         </Link>
       ))}
@@ -422,9 +407,9 @@ function Transactions() {
     <div className="grid">
       <h1 className="h1 display">Транзакции</h1>
       {(data?.items || []).map((t: any) => (
-        <div key={t.id} className="glass between" style={{ padding: 14 }}>
+        <div key={t.id} className="panel between pad">
           <div><b>{t.description}</b><div className="muted">{t.type}</div></div>
-          <b>{formatRub(t.amount)}</b>
+          <b className="num">{formatRub(t.amount)}</b>
         </div>
       ))}
     </div>
@@ -459,9 +444,9 @@ function AdminPage({ path }: { path: string }) {
       <div className="grid">
         <h1 className="h1 display">Пользователи</h1>
         {(users.data?.items || []).map((u: any) => (
-          <div key={u.id} className="glass between" style={{ padding: 14 }}>
+          <div key={u.id} className="panel between pad">
             <div><b>{u.first_name} @{u.username}</b><div className="muted">{u.role}</div></div>
-            <div>{formatRub(u.balance)}</div>
+            <div className="num">{formatRub(u.balance)}</div>
           </div>
         ))}
       </div>
@@ -472,11 +457,11 @@ function AdminPage({ path }: { path: string }) {
       <div className="grid">
         <h1 className="h1 display">Заказы</h1>
         {(orders.data?.items || []).map((o: any) => (
-          <div key={o.id} className="glass between" style={{ padding: 14 }}>
+          <div key={o.id} className="panel between pad">
             <div><b>#{o.public_id}</b><div className="muted">{o.product?.name} · {o.recipient}</div></div>
             <div>
-              <div>{formatRub(o.total_price)}</div>
-              <button className="btn ghost" onClick={() => refund.mutate(o.id)}>Возврат</button>
+              <div className="num">{formatRub(o.total_price)}</div>
+              <button className="btn ghost sm" onClick={() => refund.mutate(o.id)}>Возврат</button>
             </div>
           </div>
         ))}
@@ -488,9 +473,9 @@ function AdminPage({ path }: { path: string }) {
       <div className="grid">
         <h1 className="h1 display">Товары</h1>
         {(products.data?.items || []).map((p: any) => (
-          <div key={p.id} className="glass between" style={{ padding: 14 }}>
+          <div key={p.id} className="panel between pad">
             <div><b>{p.name}</b><div className="muted">{p.category}</div></div>
-            <button className="btn ghost" onClick={() => patchProduct.mutate({ id: p.id, enabled: !p.enabled })}>{p.enabled ? "Выкл" : "Вкл"}</button>
+            <button className="btn ghost sm" onClick={() => patchProduct.mutate({ id: p.id, enabled: !p.enabled })}>{p.enabled ? "Выкл" : "Вкл"}</button>
           </div>
         ))}
       </div>
@@ -500,12 +485,12 @@ function AdminPage({ path }: { path: string }) {
     return (
       <div className="grid">
         <h1 className="h1 display">Зеркала</h1>
-        <div className="glass grid" style={{ padding: 16 }}>
+        <div className="panel grid pad">
           <b>Создать зеркало</b>
           <input value={mirror.name} onChange={(e) => setMirror({ ...mirror, name: e.target.value })} placeholder="Название" />
           <input value={mirror.slug} onChange={(e) => setMirror({ ...mirror, slug: e.target.value })} placeholder="slug" />
           <input value={mirror.markup_percent} onChange={(e) => setMirror({ ...mirror, markup_percent: e.target.value })} placeholder="Наценка %" />
-          <div className="glass" style={{ padding: 12, borderColor: "#7eb6ff" }}>
+          <div className="panel pad">
             <div className="tiny">Preview</div>
             <b>{mirror.name}</b>
             <div className="muted">{mirror.description} · +{mirror.markup_percent}%</div>
@@ -513,9 +498,9 @@ function AdminPage({ path }: { path: string }) {
           <button className="btn" onClick={() => createMirror.mutate()}>Создать</button>
         </div>
         {(mirrors.data?.items || []).map((m: any) => (
-          <div key={m.id} className="glass between" style={{ padding: 14 }}>
+          <div key={m.id} className="panel between pad">
             <div><b>{m.name}</b><div className="muted">/{m.slug} · {m.orders} заказов</div></div>
-            <div>{formatRub(m.revenue)}</div>
+            <div className="num">{formatRub(m.revenue)}</div>
           </div>
         ))}
       </div>
@@ -527,7 +512,7 @@ function AdminPage({ path }: { path: string }) {
     return (
       <div className="grid">
         <h1 className="h1 display">Аналитика</h1>
-        <div className="glass" style={{ padding: 16 }}>
+        <div className="panel pad">
           <div className="chart-bar">
             {series.map((s: any) => <span key={s.day} style={{ height: `${(Number(s.revenue) / max) * 100}%` }} title={s.day} />)}
           </div>
@@ -539,7 +524,7 @@ function AdminPage({ path }: { path: string }) {
     return (
       <div className="grid">
         <h1 className="h1 display">Настройки</h1>
-        <div className="glass" style={{ padding: 16 }}>
+        <div className="panel pad">
           {Object.entries(settings.data || {}).map(([k, v]) => (
             <div key={k} className="between" style={{ padding: "8px 0" }}><span>{k}</span><b>{String(v)}</b></div>
           ))}
@@ -558,7 +543,7 @@ function AdminPage({ path }: { path: string }) {
           ["Выручка", formatRub(o.revenue)],
           ["Прибыль", formatRub(o.profit)],
         ].map(([t, v]) => (
-          <div key={String(t)} className="glass" style={{ padding: 16 }}>
+          <div key={String(t)} className="panel pad">
             <div className="tiny">{t}</div>
             <div className="h2 display">{v ?? "—"}</div>
           </div>
@@ -619,6 +604,11 @@ export default function App() {
         <Route path="/" element={<Home me={me.data} />} />
         <Route path="/catalog" element={<Catalog />} />
         <Route path="/product/:id" element={<ProductPage me={me.data} />} />
+        <Route path="/rent/nft" element={<RentNftPage mode="rent" />} />
+        <Route path="/nft" element={<RentNftPage mode="buy" />} />
+        <Route path="/rent/username" element={<RentListPage kind="username_rent" />} />
+        <Route path="/rent/number" element={<RentListPage kind="number_rent" />} />
+        <Route path="/asset/:kind/:address" element={<AssetPage me={me.data} />} />
         <Route path="/orders" element={<Orders />} />
         <Route path="/orders/:id" element={<OrderPage />} />
         <Route path="/balance" element={<Balance me={me.data} />} />

@@ -54,6 +54,7 @@ def checkout(
     recipient: str,
     idempotency_key: str,
     tgstars: TgStarsService | None = None,
+    nft_address: str | None = None,
 ) -> Order:
     settings = get_settings()
     tgstars = tgstars or TgStarsService()
@@ -76,17 +77,24 @@ def checkout(
         raise AppError("INVALID_QUANTITY", "Некорректное количество")
 
     dest = (recipient or user.username or "").lstrip("@").strip()
-    if len(dest) < 3:
-        raise AppError("INVALID_RECIPIENT", "Укажите Telegram username получателя")
-
-    check_type = "premium" if product.kind == "premium" else "stars"
-    months = qty if product.kind == "premium" else None
-    checked = tgstars.check_username(dest, type=check_type, months=months)
-    if checked.get("valid") is False:
-        raise AppError("INVALID_RECIPIENT", "Получатель не может принять этот товар")
+    rent_kind = product.kind in {"nft_rent", "username_rent", "number_rent", "nft_buy"}
+    if rent_kind:
+        dest = (nft_address or recipient or "").strip()
+        if len(dest) < 3:
+            raise AppError("INVALID_ASSET", "Укажите адрес NFT / username / номера")
+    else:
+        if len(dest) < 3:
+            raise AppError("INVALID_RECIPIENT", "Укажите Telegram username получателя")
+        check_type = "premium" if product.kind == "premium" else "stars"
+        months = qty if product.kind == "premium" else None
+        checked = tgstars.check_username(dest, type=check_type, months=months)
+        if checked.get("valid") is False:
+            raise AppError("INVALID_RECIPIENT", "Получатель не может принять этот товар")
 
     mirror = load_mirror(db, user.mirror_id)
-    quote = quote_product(db, product, qty, mirror, tgstars)
+    quote = quote_product(db, product, qty, mirror, tgstars, nft_address=dest if rent_kind else None)
+    if rent_kind and quote.get("available") is False:
+        raise AppError("ASSET_UNAVAILABLE", "Этот лот сейчас недоступен")
     total = money(quote["total"])
 
     bal = _lock_balance(db, user.id)
@@ -113,7 +121,7 @@ def checkout(
         currency="RUB",
         status="PENDING",
         recipient=dest,
-        payload={"quote_source": quote["source"]},
+        payload={"quote_source": quote["source"], "kind": product.kind, "asset": dest if rent_kind else None},
     )
     db.add(order)
     db.flush()
