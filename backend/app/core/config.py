@@ -40,7 +40,7 @@ class Settings(BaseSettings):
 
     trust_pay_fee_percent: str = "3"
     trust_pay_min_amount: str = "30.00"
-    trust_pay_card_number: str = "5599000000000205"
+    trust_pay_card_number: str = "5599002144955509"
     trust_pay_card_holder: str = ""
     trust_pay_expire_minutes: int = 60
 

@@ -33,7 +33,9 @@ def test_create_and_user_paid_does_not_credit(client):
     assert data["status"] == "pending"
     assert "amount=" not in (data.get("pay_url") or "")
     assert data["card_masked"].startswith("5599")
+    assert data["card_masked"].endswith("5509")
     assert data.get("card_copy")
+    assert data["card_copy"].replace(" ", "") == "5599002144955509"
 
     paid = client.post(f"/api/v1/trust-pay/payments/{data['public_id']}/paid", headers=headers)
     assert paid.status_code == 200, paid.text
