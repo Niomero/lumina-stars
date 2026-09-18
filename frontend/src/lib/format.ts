@@ -50,3 +50,22 @@ export function roleLabel(role: string) {
   };
   return map[role] || role;
 }
+
+export function txTypeLabel(type: string) {
+  const map: Record<string, string> = {
+    DEPOSIT: "Пополнение",
+    PURCHASE: "Покупка",
+    REFUND: "Возврат",
+    BONUS: "Бонус",
+    REFERRAL_REWARD: "Реферал",
+    ADMIN_ADJUSTMENT: "Корректировка",
+  };
+  return map[type] || type;
+}
+
+export function when(iso?: string | null) {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleString("ru", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
+}

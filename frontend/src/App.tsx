@@ -19,10 +19,11 @@ import {
   AtSign,
 } from "lucide-react";
 import { api, ApiError, clearToken, getToken, setToken } from "./api/client";
-import { formatRub, payStatusLabel, payStatusTone, roleLabel, statusLabel, statusTone } from "./lib/format";
+import { formatRub, payStatusLabel, payStatusTone, statusLabel, statusTone } from "./lib/format";
 import { bootTelegram, haptic } from "./lib/telegram";
 import { AssetPage, GalleryHome, GiftArt, RentListPage, RentNftPage } from "./Market";
 import { TrustPayPage } from "./TrustPay";
+import { AdminApp } from "./admin/Admin";
 
 type Me = {
   id: number;
@@ -70,20 +71,41 @@ function Shell({ me, children }: { me: Me; children: React.ReactNode }) {
             <div className="row"><div className="logo-mark">L</div><b className="display">Lumina</b></div>
             {[
               ["/admin", "Дашборд"],
+              ["/admin/trust-pay", "Trust Pay"],
               ["/admin/users", "Пользователи"],
               ["/admin/staff", "Команда"],
               ["/admin/orders", "Заказы"],
+              ["/admin/transactions", "Транзакции"],
               ["/admin/products", "Товары"],
               ["/admin/mirrors", "Зеркала"],
               ["/admin/analytics", "Аналитика"],
-              ["/admin/trust-pay", "Trust Pay"],
-              ["/admin/settings", "Настройки"],
-            ].map(([to, label]) => (
-              <Link key={to} to={to} className={loc.pathname === to ? "btn block" : "btn ghost block"}>{label}</Link>
-            ))}
+              ...(me.role === "ADMIN" || me.role === "SUPERADMIN" ? [["/admin/audit", "Журнал"]] : []),
+              ...(me.role === "SUPERADMIN" ? [["/admin/settings", "Настройки"]] : []),
+            ].map(([to, label]) => {
+              const active = to === "/admin" ? loc.pathname === "/admin" : loc.pathname.startsWith(to);
+              return (
+                <Link key={to} to={to} className={active ? "btn block" : "btn ghost block"}>{label}</Link>
+              );
+            })}
             <Link to="/" className="btn ghost block">В магазин</Link>
           </aside>
-          <div>{children}</div>
+          <div>
+            <nav className="admin-tabs">
+              {[
+                ["/admin", "Дашборд"],
+                ["/admin/trust-pay", "Платежи"],
+                ["/admin/users", "Люди"],
+                ["/admin/orders", "Заказы"],
+                ["/admin/transactions", "Движения"],
+              ].map(([to, label]) => {
+                const active = to === "/admin" ? loc.pathname === "/admin" : loc.pathname.startsWith(to);
+                return (
+                  <Link key={to} to={to} className={active ? "on" : ""}>{label}</Link>
+                );
+              })}
+            </nav>
+            {children}
+          </div>
         </div>
       ) : (
         children
@@ -451,274 +473,6 @@ function Transactions() {
   );
 }
 
-function AdminPage({ path, me }: { path: string; me: Me }) {
-  const qc = useQueryClient();
-  const [userQ, setUserQ] = useState("");
-  const [staffTg, setStaffTg] = useState("");
-  const [staffUser, setStaffUser] = useState("");
-  const [staffRole, setStaffRole] = useState("ADMIN");
-  const overview = useQuery({ queryKey: ["adm-ov"], queryFn: () => api("/admin/overview?period=7d") });
-  const users = useQuery({
-    queryKey: ["adm-users", userQ],
-    queryFn: () => api(`/admin/users?q=${encodeURIComponent(userQ)}`),
-    enabled: path === "users",
-  });
-  const staff = useQuery({ queryKey: ["adm-staff"], queryFn: () => api("/admin/staff"), enabled: path === "staff" });
-  const orders = useQuery({ queryKey: ["adm-orders"], queryFn: () => api("/admin/orders"), enabled: path === "orders" });
-  const products = useQuery({ queryKey: ["adm-products"], queryFn: () => api("/admin/products"), enabled: path === "products" });
-  const mirrors = useQuery({ queryKey: ["adm-mirrors"], queryFn: () => api("/admin/mirrors"), enabled: path === "mirrors" });
-  const analytics = useQuery({ queryKey: ["adm-an"], queryFn: () => api("/admin/analytics?period=7d"), enabled: path === "analytics" });
-  const settings = useQuery({ queryKey: ["adm-set"], queryFn: () => api("/admin/settings"), enabled: path === "settings" });
-  const trustPays = useQuery({ queryKey: ["adm-tp"], queryFn: () => api("/admin/trust-pay"), enabled: path === "trust-pay" });
-  const [mirror, setMirror] = useState({ name: "Aurora", slug: "aurora", markup_percent: "10", description: "Зеркало Aurora" });
-  const createMirror = useMutation({
-    mutationFn: () => api("/admin/mirrors", { method: "POST", body: JSON.stringify(mirror) }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["adm-mirrors"] }),
-  });
-  const refund = useMutation({
-    mutationFn: (id: number) => api(`/admin/orders/${id}/refund`, { method: "POST" }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["adm-orders"] }),
-  });
-  const patchProduct = useMutation({
-    mutationFn: ({ id, enabled }: any) => api(`/admin/products/${id}`, { method: "PATCH", body: JSON.stringify({ enabled }) }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["adm-products"] }),
-  });
-  const confirmPay = useMutation({
-    mutationFn: (id: number | string) => api(`/admin/trust-pay/${id}/confirm`, { method: "POST" }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["adm-tp"] }),
-  });
-  const failPay = useMutation({
-    mutationFn: (id: number | string) => api(`/admin/trust-pay/${id}/fail`, { method: "POST" }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["adm-tp"] }),
-  });
-  const setRole = useMutation({
-    mutationFn: ({ id, role }: { id: number; role: string }) =>
-      api(`/admin/users/${id}`, { method: "PATCH", body: JSON.stringify({ role }) }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["adm-users"] });
-      qc.invalidateQueries({ queryKey: ["adm-staff"] });
-    },
-  });
-  const addStaff = useMutation({
-    mutationFn: () => {
-      const body: Record<string, string | number> = { role: staffRole };
-      const tid = staffTg.replace(/\D/g, "");
-      if (tid) body.telegram_id = Number(tid);
-      const name = staffUser.replace(/^@/, "").trim();
-      if (name) body.username = name;
-      return api("/admin/staff", { method: "POST", body: JSON.stringify(body) });
-    },
-    onSuccess: () => {
-      setStaffTg("");
-      setStaffUser("");
-      qc.invalidateQueries({ queryKey: ["adm-staff"] });
-      qc.invalidateQueries({ queryKey: ["adm-users"] });
-    },
-  });
-  const dropStaff = useMutation({
-    mutationFn: (id: number) => api(`/admin/staff/${id}`, { method: "DELETE" }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["adm-staff"] });
-      qc.invalidateQueries({ queryKey: ["adm-users"] });
-    },
-  });
-
-  if (path === "users") {
-    const owner = me.role === "SUPERADMIN";
-    return (
-      <div className="grid">
-        <h1 className="h1 display">Пользователи</h1>
-        <input placeholder="Имя, @username или Telegram ID" value={userQ} onChange={(e) => setUserQ(e.target.value)} />
-        {(users.data?.items || []).map((u: any) => (
-          <div key={u.id} className="panel pad grid">
-            <div className="between">
-              <div>
-                <b>{u.first_name || "—"} {u.username ? `@${u.username}` : ""}</b>
-                <div className="muted">Telegram ID {u.telegram_id} · {roleLabel(u.role)}</div>
-              </div>
-              <div className="num">{formatRub(u.balance)}</div>
-            </div>
-            {u.is_owner && <span className="badge ok">Владелец</span>}
-            {owner && !u.is_owner && u.role !== "SUPERADMIN" && (
-              <div className="row">
-                {u.role !== "ADMIN" && <button className="btn sm" onClick={() => setRole.mutate({ id: u.id, role: "ADMIN" })}>Админ</button>}
-                {u.role !== "MANAGER" && <button className="btn ghost sm" onClick={() => setRole.mutate({ id: u.id, role: "MANAGER" })}>Менеджер</button>}
-                {u.role !== "USER" && <button className="btn ghost sm" onClick={() => setRole.mutate({ id: u.id, role: "USER" })}>Снять права</button>}
-              </div>
-            )}
-          </div>
-        ))}
-        {!(users.data?.items || []).length && <div className="empty">Никого не нашли</div>}
-        {setRole.error && <div className="err">{(setRole.error as ApiError).message}</div>}
-      </div>
-    );
-  }
-  if (path === "staff") {
-    const owner = me.role === "SUPERADMIN";
-    return (
-      <div className="grid">
-        <h1 className="h1 display">Команда</h1>
-        <p className="muted">Владелец — Telegram ID 8565986003. Администраторов добавляет только владелец.</p>
-        {owner && (
-          <div className="panel pad grid">
-            <div className="tiny">Новый администратор</div>
-            <input inputMode="numeric" placeholder="Telegram ID" value={staffTg} onChange={(e) => setStaffTg(e.target.value)} />
-            <input placeholder="@username, если уже заходил" value={staffUser} onChange={(e) => setStaffUser(e.target.value)} />
-            <div className="chips">
-              <button className={staffRole === "ADMIN" ? "on" : ""} onClick={() => setStaffRole("ADMIN")}>Администратор</button>
-              <button className={staffRole === "MANAGER" ? "on" : ""} onClick={() => setStaffRole("MANAGER")}>Менеджер</button>
-            </div>
-            {addStaff.error && <div className="err">{(addStaff.error as ApiError).message}</div>}
-            <button className="btn block" disabled={addStaff.isPending || (!staffTg.trim() && !staffUser.trim())} onClick={() => addStaff.mutate()}>
-              {addStaff.isPending ? "Добавляем…" : "Добавить"}
-            </button>
-          </div>
-        )}
-        {(staff.data?.items || []).map((u: any) => (
-          <div key={u.id} className="panel pad grid">
-            <div className="between">
-              <div>
-                <b>{u.first_name || "—"} {u.username ? `@${u.username}` : ""}</b>
-                <div className="muted">Telegram ID {u.telegram_id}</div>
-              </div>
-              <span className={`badge ${u.is_owner || u.role === "SUPERADMIN" ? "ok" : ""}`}>
-                {u.is_owner ? "Владелец" : roleLabel(u.role)}
-              </span>
-            </div>
-            {owner && !u.is_owner && u.role !== "SUPERADMIN" && (
-              <button className="btn ghost sm" onClick={() => dropStaff.mutate(u.id)}>Снять права</button>
-            )}
-          </div>
-        ))}
-        {dropStaff.error && <div className="err">{(dropStaff.error as ApiError).message}</div>}
-      </div>
-    );
-  }
-  if (path === "orders") {
-    return (
-      <div className="grid">
-        <h1 className="h1 display">Заказы</h1>
-        {(orders.data?.items || []).map((o: any) => (
-          <div key={o.id} className="panel between pad">
-            <div><b>#{o.public_id}</b><div className="muted">{o.product?.name} · {o.recipient}</div></div>
-            <div>
-              <div className="num">{formatRub(o.total_price)}</div>
-              <button className="btn ghost sm" onClick={() => refund.mutate(o.id)}>Возврат</button>
-            </div>
-          </div>
-        ))}
-      </div>
-    );
-  }
-  if (path === "products") {
-    return (
-      <div className="grid">
-        <h1 className="h1 display">Товары</h1>
-        {(products.data?.items || []).map((p: any) => (
-          <div key={p.id} className="panel between pad">
-            <div><b>{p.name}</b><div className="muted">{p.category}</div></div>
-            <button className="btn ghost sm" onClick={() => patchProduct.mutate({ id: p.id, enabled: !p.enabled })}>{p.enabled ? "Выкл" : "Вкл"}</button>
-          </div>
-        ))}
-      </div>
-    );
-  }
-  if (path === "mirrors") {
-    return (
-      <div className="grid">
-        <h1 className="h1 display">Зеркала</h1>
-        <div className="panel grid pad">
-          <b>Создать зеркало</b>
-          <input value={mirror.name} onChange={(e) => setMirror({ ...mirror, name: e.target.value })} placeholder="Название" />
-          <input value={mirror.slug} onChange={(e) => setMirror({ ...mirror, slug: e.target.value })} placeholder="slug" />
-          <input value={mirror.markup_percent} onChange={(e) => setMirror({ ...mirror, markup_percent: e.target.value })} placeholder="Наценка %" />
-          <div className="panel pad">
-            <div className="tiny">Preview</div>
-            <b>{mirror.name}</b>
-            <div className="muted">{mirror.description} · +{mirror.markup_percent}%</div>
-          </div>
-          <button className="btn" onClick={() => createMirror.mutate()}>Создать</button>
-        </div>
-        {(mirrors.data?.items || []).map((m: any) => (
-          <div key={m.id} className="panel between pad">
-            <div><b>{m.name}</b><div className="muted">/{m.slug} · {m.orders} заказов</div></div>
-            <div className="num">{formatRub(m.revenue)}</div>
-          </div>
-        ))}
-      </div>
-    );
-  }
-  if (path === "trust-pay") {
-    return (
-      <div className="grid">
-        <h1 className="h1 display">Trust Pay</h1>
-        {(trustPays.data?.items || []).map((p: any) => (
-          <div key={p.id} className="panel pad grid">
-            <div className="between">
-              <b>{p.public_id}</b>
-              <span className={`badge ${payStatusTone(p.status)}`}>{payStatusLabel(p.status)}</span>
-            </div>
-            <div className="muted">user {p.user_id} · tg {p.telegram_id} · @{p.username || "—"}</div>
-            <div className="num">{formatRub(p.amount)} + {formatRub(p.fee)} = {formatRub(p.total)}</div>
-            <div className="muted">{p.created_at ? new Date(p.created_at).toLocaleString("ru") : ""}{p.paid_at ? ` · paid ${new Date(p.paid_at).toLocaleString("ru")}` : ""}</div>
-            {(p.status === "pending" || p.status === "processing") && (
-              <div className="row">
-                <button className="btn" onClick={() => confirmPay.mutate(p.id)}>Подтвердить</button>
-                <button className="btn ghost" onClick={() => failPay.mutate(p.id)}>Отклонить</button>
-              </div>
-            )}
-          </div>
-        ))}
-        {!(trustPays.data?.items || []).length && <div className="empty">Платежей пока нет</div>}
-      </div>
-    );
-  }
-  if (path === "analytics") {
-    const series = analytics.data?.series || [];
-    const max = Math.max(1, ...series.map((s: any) => Number(s.revenue)));
-    return (
-      <div className="grid">
-        <h1 className="h1 display">Аналитика</h1>
-        <div className="panel pad">
-          <div className="chart-bar">
-            {series.map((s: any) => <span key={s.day} style={{ height: `${(Number(s.revenue) / max) * 100}%` }} title={s.day} />)}
-          </div>
-        </div>
-      </div>
-    );
-  }
-  if (path === "settings") {
-    return (
-      <div className="grid">
-        <h1 className="h1 display">Настройки</h1>
-        <div className="panel pad">
-          {Object.entries(settings.data || {}).map(([k, v]) => (
-            <div key={k} className="between" style={{ padding: "8px 0" }}><span>{k}</span><b>{String(v)}</b></div>
-          ))}
-        </div>
-      </div>
-    );
-  }
-  const o = overview.data || {};
-  return (
-    <div className="grid">
-      <h1 className="h1 display">Админка</h1>
-      <div className="grid catalog-grid">
-        {[
-          ["Пользователи", o.users],
-          ["Заказы", o.orders],
-          ["Выручка", formatRub(o.revenue)],
-          ["Прибыль", formatRub(o.profit)],
-        ].map(([t, v]) => (
-          <div key={String(t)} className="panel pad">
-            <div className="tiny">{t}</div>
-            <div className="h2 display">{v ?? "—"}</div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
 
 export default function App() {
   const [ready, setReady] = useState(false);
@@ -783,15 +537,7 @@ export default function App() {
         <Route path="/transactions" element={<Transactions />} />
         <Route path="/referrals" element={<Referrals />} />
         <Route path="/profile" element={<Profile me={me.data} />} />
-        <Route path="/admin" element={isStaff(me.data.role) ? <AdminPage path="home" me={me.data} /> : <Navigate to="/" />} />
-        <Route path="/admin/users" element={isStaff(me.data.role) ? <AdminPage path="users" me={me.data} /> : <Navigate to="/" />} />
-        <Route path="/admin/staff" element={isStaff(me.data.role) ? <AdminPage path="staff" me={me.data} /> : <Navigate to="/" />} />
-        <Route path="/admin/orders" element={isStaff(me.data.role) ? <AdminPage path="orders" me={me.data} /> : <Navigate to="/" />} />
-        <Route path="/admin/products" element={isStaff(me.data.role) ? <AdminPage path="products" me={me.data} /> : <Navigate to="/" />} />
-        <Route path="/admin/mirrors" element={isStaff(me.data.role) ? <AdminPage path="mirrors" me={me.data} /> : <Navigate to="/" />} />
-        <Route path="/admin/analytics" element={isStaff(me.data.role) ? <AdminPage path="analytics" me={me.data} /> : <Navigate to="/" />} />
-        <Route path="/admin/trust-pay" element={isStaff(me.data.role) ? <AdminPage path="trust-pay" me={me.data} /> : <Navigate to="/" />} />
-        <Route path="/admin/settings" element={isStaff(me.data.role) ? <AdminPage path="settings" me={me.data} /> : <Navigate to="/" />} />
+        <Route path="/admin/*" element={isStaff(me.data.role) ? <AdminApp me={me.data} /> : <Navigate to="/" />} />
         <Route path="*" element={<Navigate to="/" />} />
       </Routes>
     </Shell>

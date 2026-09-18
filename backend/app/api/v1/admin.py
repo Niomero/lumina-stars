@@ -3,7 +3,7 @@ from decimal import Decimal
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.api.deps import require
@@ -20,6 +20,7 @@ from app.models import (
     Order,
     Payment,
     Product,
+    Referral,
     Transaction,
     User,
 )
@@ -70,6 +71,15 @@ def overview(period: str = "7d", actor: User = Depends(require("analytics.read")
     profit = sum((o.profit for o in paid), Decimal("0.00"))
     users = db.scalar(user_q) or 0
     mirrors = db.scalar(select(func.count()).select_from(Mirror)) or 0
+    pending_pay = db.scalar(
+        select(func.count()).select_from(Payment).where(
+            Payment.provider == "trust_pay", Payment.status.in_(("pending", "processing"))
+        )
+    ) or 0
+    processing_pay = db.scalar(
+        select(func.count()).select_from(Payment).where(Payment.provider == "trust_pay", Payment.status == "processing")
+    ) or 0
+    blocked = db.scalar(select(func.count()).select_from(User).where(User.is_blocked.is_(True))) or 0
     return {
         "success": True,
         "data": {
@@ -79,6 +89,9 @@ def overview(period: str = "7d", actor: User = Depends(require("analytics.read")
             "profit": f"{profit:.2f}",
             "mirrors": int(mirrors),
             "avg_order": f"{(revenue / len(paid) if paid else Decimal('0')):.2f}",
+            "pending_payments": int(pending_pay),
+            "processing_payments": int(processing_pay),
+            "blocked_users": int(blocked),
         },
     }
 
@@ -125,12 +138,18 @@ def user_detail(user_id: int, actor: User = Depends(require("users.read")), db: 
     bal = db.scalar(select(Balance.amount).where(Balance.user_id == user.id)) or 0
     orders = list(db.scalars(select(Order).options(selectinload(Order.product)).where(Order.user_id == user.id).order_by(Order.id.desc()).limit(20)))
     txs = list(db.scalars(select(Transaction).where(Transaction.user_id == user.id).order_by(Transaction.id.desc()).limit(20)))
+    pays = list(db.scalars(select(Payment).where(Payment.user_id == user.id).order_by(Payment.id.desc()).limit(20)))
+    invited = db.scalar(select(func.count()).select_from(Referral).where(Referral.owner_user_id == user.id)) or 0
+    from app.services.trust_pay import payment_public
+
     return {
         "success": True,
         "data": {
             "user": user_public(user, balance=bal),
             "orders": [order_public(o) for o in orders],
             "transactions": [tx_public(t) for t in txs],
+            "payments": [payment_public(p) for p in pays],
+            "referrals": {"invited": int(invited), "code": user.referral_code},
         },
     }
 
@@ -141,6 +160,8 @@ def patch_user(user_id: int, body: PatchUserIn, actor: User = Depends(require("u
     if not user:
         raise NotFoundError("Пользователь не найден")
     if body.is_blocked is not None:
+        if is_owner_telegram(user.telegram_id):
+            raise AppError("OWNER_PROTECTED", "Владельца нельзя заблокировать")
         user.is_blocked = body.is_blocked
         write_audit(db, "user.block" if body.is_blocked else "user.unblock", actor.id, "user", user.id)
     if body.role is not None:
@@ -258,6 +279,7 @@ def admin_orders(
     page: int = 1,
     limit: int = 20,
     status: str | None = None,
+    q: str | None = None,
     actor: User = Depends(require("orders.read")),
     db: Session = Depends(get_db),
 ):
@@ -266,6 +288,11 @@ def admin_orders(
     if status:
         stmt = stmt.where(Order.status == status)
         count = count.where(Order.status == status)
+    if q:
+        like = f"%{q.strip()}%"
+        filt = Order.public_id.ilike(like) | Order.recipient.ilike(like)
+        stmt = stmt.where(filt)
+        count = count.where(filt)
     scoped = _scope_user_ids(actor, db)
     if scoped is not None:
         stmt = stmt.where(Order.user_id.in_(scoped or [-1]))
@@ -273,6 +300,71 @@ def admin_orders(
     total = db.scalar(count) or 0
     items = list(db.scalars(stmt.order_by(Order.id.desc()).offset((page - 1) * limit).limit(limit)))
     return {"success": True, "data": {"items": [order_public(o) for o in items], "total": int(total), "page": page}}
+
+
+ALLOWED_STATUS = {
+    "PENDING": {"CANCELLED", "PROCESSING"},
+    "PROCESSING": {"APPROVED", "FAILED", "CANCELLED"},
+    "APPROVED": {"COMPLETED"},
+    "FAILED": {"CANCELLED"},
+}
+
+
+def _get_order(db: Session, order_id: str) -> Order:
+    stmt = select(Order).options(selectinload(Order.product), selectinload(Order.user))
+    if order_id.isdigit():
+        stmt = stmt.where(Order.id == int(order_id))
+    else:
+        stmt = stmt.where(Order.public_id == order_id.lstrip("#"))
+    order = db.scalar(stmt)
+    if not order:
+        raise NotFoundError("Заказ не найден")
+    return order
+
+
+@router.get("/orders/{order_id}")
+def admin_order_detail(order_id: str, actor: User = Depends(require("orders.read")), db: Session = Depends(get_db)):
+    order = _get_order(db, order_id)
+    data = order_public(order)
+    data["payload"] = order.payload or {}
+    data["provider_order_id"] = order.provider_order_id
+    data["provider_cost"] = f"{money(order.provider_cost):.2f}"
+    logs = list(
+        db.scalars(
+            select(AuditLog)
+            .where(AuditLog.entity == "order", AuditLog.entity_id == order.public_id)
+            .order_by(AuditLog.id.asc())
+        )
+    )
+    data["logs"] = [
+        {
+            "id": a.id,
+            "action": a.action,
+            "actor_id": a.actor_id,
+            "created_at": a.created_at.isoformat() if a.created_at else None,
+            "payload": a.payload,
+        }
+        for a in logs
+    ]
+    return {"success": True, "data": data}
+
+
+class OrderPatch(BaseModel):
+    status: str
+
+
+@router.patch("/orders/{order_id}")
+def admin_order_patch(order_id: str, body: OrderPatch, actor: User = Depends(require("orders.write")), db: Session = Depends(get_db)):
+    order = _get_order(db, order_id)
+    nxt = body.status.upper().strip()
+    allowed = ALLOWED_STATUS.get(order.status, set())
+    if nxt not in allowed:
+        raise AppError("INVALID_STATUS", f"Нельзя сменить {order.status} → {nxt}")
+    order.status = nxt
+    write_audit(db, "order.status", actor.id, "order", order.public_id, {"status": nxt})
+    db.commit()
+    db.refresh(order)
+    return {"success": True, "data": order_public(order)}
 
 
 @router.post("/orders/{order_id}/refund")
@@ -354,6 +446,10 @@ class ProductPatch(BaseModel):
     enabled: bool | None = None
     fallback_unit_price: Decimal | None = None
     popular: bool | None = None
+    sort_order: int | None = None
+    min_quantity: int | None = None
+    max_quantity: int | None = None
+    step: int | None = None
 
 
 @router.patch("/products/{product_id}")
@@ -512,6 +608,34 @@ def analytics(period: str = "7d", actor: User = Depends(require("analytics.read"
     return {"success": True, "data": {"series": series}}
 
 
+@router.get("/transactions")
+def admin_transactions(
+    page: int = 1,
+    limit: int = 30,
+    type: str | None = None,
+    actor: User = Depends(require("orders.read")),
+    db: Session = Depends(get_db),
+):
+    stmt = select(Transaction)
+    count = select(func.count()).select_from(Transaction)
+    if type:
+        stmt = stmt.where(Transaction.type == type.upper())
+        count = count.where(Transaction.type == type.upper())
+    total = db.scalar(count) or 0
+    items = list(db.scalars(stmt.order_by(Transaction.id.desc()).offset((page - 1) * limit).limit(limit)))
+    out = []
+    for t in items:
+        row = tx_public(t)
+        owner = db.get(User, t.user_id)
+        row["user_id"] = t.user_id
+        if owner:
+            row["username"] = owner.username
+            row["first_name"] = owner.first_name
+            row["telegram_id"] = owner.telegram_id
+        out.append(row)
+    return {"success": True, "data": {"items": out, "total": int(total), "page": page}}
+
+
 @router.get("/audit")
 def audit(page: int = 1, limit: int = 50, actor: User = Depends(require("audit.read")), db: Session = Depends(get_db)):
     items = list(db.scalars(select(AuditLog).order_by(AuditLog.id.desc()).offset((page - 1) * limit).limit(limit)))
@@ -571,7 +695,12 @@ def admin_trust_pay(
     stmt = select(Payment).where(Payment.provider == "trust_pay")
     if status:
         stmt = stmt.where(Payment.status == status)
-    items = list(db.scalars(stmt.order_by(Payment.id.desc()).offset((page - 1) * limit).limit(limit)))
+    priority = case(
+        (Payment.status == "processing", 0),
+        (Payment.status == "pending", 1),
+        else_=2,
+    )
+    items = list(db.scalars(stmt.order_by(priority, Payment.id.desc()).offset((page - 1) * limit).limit(limit)))
     out = []
     for p in items:
         owner = db.get(User, p.user_id)

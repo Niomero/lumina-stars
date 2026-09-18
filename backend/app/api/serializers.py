@@ -59,20 +59,32 @@ def product_public(product: Product, unit_price=None, total=None) -> dict:
 
 def order_public(order: Order) -> dict:
     product = order.product
-    return {
+    user = getattr(order, "user", None)
+    data = {
         "id": order.id,
         "public_id": order.public_id,
         "product": product_public(product) if product else {"id": order.product_id},
         "quantity": order.quantity,
         "unit_price": dec(order.unit_price),
         "total_price": dec(order.total_price),
+        "profit": dec(order.profit),
         "currency": order.currency,
         "status": order.status,
         "recipient": order.recipient,
+        "provider": order.provider,
+        "mirror_id": order.mirror_id,
         "created_at": order.created_at.isoformat() if order.created_at else None,
         "updated_at": order.updated_at.isoformat() if order.updated_at else None,
         "message": (order.payload or {}).get("message") if order.status == "APPROVED" else None,
     }
+    if user is not None:
+        data["user"] = {
+            "id": user.id,
+            "telegram_id": user.telegram_id,
+            "username": user.username,
+            "first_name": user.first_name,
+        }
+    return data
 
 
 def tx_public(tx: Transaction) -> dict:

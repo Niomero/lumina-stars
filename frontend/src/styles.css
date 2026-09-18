@@ -239,9 +239,35 @@ input::placeholder { color: var(--fg-subtle); }
 
 .sidebar { display: none; }
 .admin-layout { display: grid; gap: var(--space-4); }
+.admin-tabs {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  margin-bottom: 4px;
+}
+.admin-tabs::-webkit-scrollbar { display: none; }
+.admin-tabs a {
+  flex: none;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 8px 12px;
+  min-height: 36px;
+  color: var(--fg-muted);
+  font-size: 13px;
+  display: grid;
+  place-items: center;
+}
+.admin-tabs a.on {
+  background: var(--accent);
+  color: var(--accent-fg);
+  border-color: transparent;
+}
+.kpi { min-height: 88px; }
 @media (min-width: 900px) {
   .app { max-width: 1120px; padding-bottom: 40px; }
   .nav { display: none; }
+  .admin-tabs { display: none; }
   .sidebar {
     display: flex;
     flex-direction: column;
