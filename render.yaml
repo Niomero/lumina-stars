@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: lumina-stars
+    runtime: docker
+    plan: free
+    region: frankfurt
+    healthCheckPath: /api/health
+    envVars:
+      - key: DEMO_MODE
+        value: "true"
+      - key: DEMO_LOGIN_ENABLED
+        value: "true"
+      - key: APP_ENV
+        value: production
