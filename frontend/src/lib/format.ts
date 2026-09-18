@@ -21,3 +21,21 @@ export function statusTone(status: string) {
   if (["FAILED", "CANCELLED"].includes(status)) return "bad";
   return "warn";
 }
+
+export function payStatusLabel(status: string) {
+  const map: Record<string, string> = {
+    pending: "Ожидает оплаты",
+    processing: "Ожидает проверки",
+    paid: "Успешно",
+    failed: "Отклонён",
+    cancelled: "Отменён",
+    expired: "Истёк",
+  };
+  return map[status] || status;
+}
+
+export function payStatusTone(status: string) {
+  if (status === "paid") return "ok";
+  if (["failed", "cancelled", "expired"].includes(status)) return "bad";
+  return "warn";
+}

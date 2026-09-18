@@ -33,10 +33,17 @@ class Settings(BaseSettings):
     fallback_star_price_rub: str = "1.32"
 
     tgstars_enabled: bool = False
-    payments_enabled: bool = False
+    payments_enabled: bool = True
     referral_enabled: bool = True
     referral_percent: str = "5"
     mirrors_enabled: bool = True
+
+    trust_pay_fee_percent: str = "3"
+    trust_pay_min_amount: str = "30.00"
+    trust_pay_card_number: str = "5599000000000205"
+    trust_pay_card_holder: str = ""
+    trust_pay_expire_minutes: int = 60
+
 
     @property
     def sqlalchemy_url(self) -> str:

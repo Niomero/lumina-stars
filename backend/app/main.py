@@ -13,6 +13,7 @@ from app.api.v1 import api_router
 from app.core.config import get_settings
 from app.core.errors import AppError
 from app.db.base import Base
+from app.db.schema import ensure_schema
 from app.db.session import SessionLocal, engine
 from app.models import *  # noqa: F401,F403
 from app.services.bootstrap import seed
@@ -62,6 +63,7 @@ async def unhandled(_, exc: Exception):
 @app.on_event("startup")
 def on_startup():
     Base.metadata.create_all(bind=engine)
+    ensure_schema(engine)
     db = SessionLocal()
     try:
         seed(db)

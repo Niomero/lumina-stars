@@ -1,54 +1,9 @@
-import os
-import sys
 from decimal import Decimal
-from pathlib import Path
 
-import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
-
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
-os.environ.setdefault("DATABASE_URL", "sqlite://")
-os.environ.setdefault("DEMO_MODE", "true")
-os.environ.setdefault("DEMO_LOGIN_ENABLED", "true")
-os.environ.setdefault("JWT_SECRET", "test-jwt-secret-please-use-long-value")
-os.environ.setdefault("SECRET_KEY", "test-secret-key-please-use-long-value")
-
-from app.core.config import get_settings
-
-get_settings.cache_clear()
 
 from app.core.money import apply_markup, money
 from app.core.rbac import Role, has_permission
-from app.db.base import Base
-from app.db.session import get_db
-from app.main import app
-from app.services.bootstrap import seed
-
-
-@pytest.fixture()
-def client():
-    engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
-    Testing = sessionmaker(bind=engine, autoflush=False, autocommit=False)
-    Base.metadata.create_all(engine)
-    db = Testing()
-    seed(db)
-    db.close()
-
-    def _get_db():
-        session = Testing()
-        try:
-            yield session
-        finally:
-            session.close()
-
-    app.dependency_overrides[get_db] = _get_db
-    with TestClient(app) as c:
-        yield c
-    app.dependency_overrides.clear()
 
 
 def auth_header(client: TestClient) -> dict:
@@ -56,6 +11,17 @@ def auth_header(client: TestClient) -> dict:
     assert res.status_code == 200, res.text
     token = res.json()["data"]["token"]
     return {"Authorization": f"Bearer {token}"}
+
+
+def credit(client, headers, amount: str):
+    me = client.get("/api/v1/me", headers=headers).json()["data"]
+    res = client.patch(
+        f"/api/v1/admin/users/{me['id']}",
+        json={"adjust_amount": amount, "adjust_reason": "test"},
+        headers=headers,
+    )
+    assert res.status_code == 200, res.text
+
 
 
 def test_money_decimal_not_float():
@@ -86,7 +52,6 @@ def test_demo_auth_and_balance(client):
 
 def test_checkout_and_idempotency(client):
     headers = auth_header(client)
-    client.post("/api/v1/balance/deposit", json={"amount": "5000"}, headers=headers)
     catalog = client.get("/api/v1/catalog", headers=headers).json()["data"]["items"]
     stars = next(p for p in catalog if p["kind"] == "stars")
     payload = {
@@ -132,7 +97,6 @@ def test_referral_code_present(client):
 
 def test_nft_rent_demo_checkout(client):
     headers = auth_header(client)
-    client.post("/api/v1/balance/deposit", json={"amount": "5000"}, headers=headers)
     catalog = client.get("/api/v1/catalog", headers=headers).json()["data"]["items"]
     nft = next(p for p in catalog if p["kind"] == "nft_rent")
     listing = client.get("/api/v1/rent/nft/list", headers=headers).json()["data"]["items"]
@@ -162,7 +126,7 @@ def test_nft_rent_demo_checkout(client):
 
 def test_nft_buy_and_transfer_demo(client):
     headers = auth_header(client)
-    client.post("/api/v1/balance/deposit", json={"amount": "20000"}, headers=headers)
+    credit(client, headers, "20000")
     catalog = client.get("/api/v1/catalog", headers=headers).json()["data"]["items"]
     buy = next(p for p in catalog if p["kind"] == "nft_buy")
     listing = client.get("/api/v1/nft/buy/list", headers=headers).json()["data"]["items"]

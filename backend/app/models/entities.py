@@ -198,12 +198,28 @@ class Payment(Base):
     __tablename__ = "payments"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    public_id: Mapped[str | None] = mapped_column(String(16), unique=True, index=True, nullable=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
-    provider: Mapped[str] = mapped_column(String(32), default="demo")
+    provider: Mapped[str] = mapped_column(String(32), default="trust_pay")
     amount: Mapped[Decimal] = mapped_column(Money)
-    status: Mapped[str] = mapped_column(String(24), default="COMPLETED")
+    fee: Mapped[Decimal] = mapped_column(Money, default=Decimal("0.00"))
+    total: Mapped[Decimal] = mapped_column(Money, default=Decimal("0.00"))
+    currency: Mapped[str] = mapped_column(String(8), default="RUB")
+    status: Mapped[str] = mapped_column(String(24), default="pending", index=True)
+    credited: Mapped[bool] = mapped_column(Boolean, default=False)
+    confirmed_by: Mapped[int | None] = mapped_column(Integer, nullable=True)
     payload: Mapped[dict | None] = mapped_column(JSONType, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+    paid_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class BotIntent(Base):
+    __tablename__ = "bot_intents"
+
+    telegram_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    intent: Mapped[str] = mapped_column(String(32), default="")
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
 
 class BotConfig(Base):

@@ -41,6 +41,15 @@ npm run build   # кладёт SPA в backend/static
 - `TELEGRAM_BOT_TOKEN`
 - `TELEGRAM_WEBAPP_URL`
 
+Trust Pay (перевод по номеру карты, не эквайринг):
+
+- `TRUST_PAY_CARD_NUMBER` — карта получателя
+- `TRUST_PAY_CARD_HOLDER` — имя получателя (опционально)
+- `TRUST_PAY_FEE_PERCENT=3`
+- `TRUST_PAY_MIN_AMOUNT=30.00`
+
+Сумма вводится в боте («Пополнить баланс») или на странице баланса. Trust Pay открывается сразу на `/pay/TP-XXXXXXXX` без повторного ввода суммы. Пользователь переводит `amount + 3%` со своего банка, нажимает «Я оплатил», админ подтверждает — на баланс зачисляется только `amount`. Instant demo-пополнение удалено.
+
 TGStars:
 
 - `TGSTARS_API_URL=https://tgstars.helper20sms.ru/api/v1/client`

@@ -19,9 +19,10 @@ import {
   AtSign,
 } from "lucide-react";
 import { api, ApiError, clearToken, getToken, setToken } from "./api/client";
-import { formatRub, statusLabel, statusTone } from "./lib/format";
+import { formatRub, payStatusLabel, payStatusTone, statusLabel, statusTone } from "./lib/format";
 import { bootTelegram, haptic } from "./lib/telegram";
 import { AssetPage, GalleryHome, GiftArt, RentListPage, RentNftPage } from "./Market";
+import { TrustPayPage } from "./TrustPay";
 
 type Me = {
   id: number;
@@ -55,6 +56,10 @@ function Shell({ me, children }: { me: Me; children: React.ReactNode }) {
     { to: "/profile", icon: UserRound, label: "Профиль" },
   ];
   const admin = loc.pathname.startsWith("/admin");
+  const trust = loc.pathname.startsWith("/pay/");
+  if (trust) {
+    return <div className="trust-host">{children}</div>;
+  }
   return (
     <div className={`app ${admin ? "admin" : ""}`}>
       {admin ? (
@@ -68,6 +73,7 @@ function Shell({ me, children }: { me: Me; children: React.ReactNode }) {
               ["/admin/products", "Товары"],
               ["/admin/mirrors", "Зеркала"],
               ["/admin/analytics", "Аналитика"],
+              ["/admin/trust-pay", "Trust Pay"],
               ["/admin/settings", "Настройки"],
             ].map(([to, label]) => (
               <Link key={to} to={to} className={loc.pathname === to ? "btn block" : "btn ghost block"}>{label}</Link>
@@ -323,22 +329,48 @@ function OrderPage() {
 }
 
 function Balance({ me }: { me: Me }) {
-  const qc = useQueryClient();
+  const nav = useNavigate();
+  const [amount, setAmount] = useState("500");
   const { data } = useQuery({ queryKey: ["tx"], queryFn: () => api("/transactions") });
-  const deposit = useMutation({
-    mutationFn: () => api("/balance/deposit", { method: "POST", body: JSON.stringify({ amount: "1000" }) }),
-    onSuccess: () => { qc.invalidateQueries(); haptic("success"); },
+  const pays = useQuery({ queryKey: ["tp-list"], queryFn: () => api("/trust-pay/payments") });
+  const create = useMutation({
+    mutationFn: () => api("/trust-pay/payments", { method: "POST", body: JSON.stringify({ amount }) }),
+    onSuccess: (p: any) => {
+      haptic("medium");
+      nav(`/pay/${p.public_id}`);
+    },
   });
   return (
     <div className="grid">
       <div className="panel ledger" style={{ textAlign: "center" }}>
         <div className="tiny">Баланс</div>
         <div className="h1 display num" style={{ fontSize: 40 }}>{formatRub(me.balance)}</div>
-        <button className="btn" onClick={() => deposit.mutate()} disabled={deposit.isPending}>Пополнить на 1 000 ₽</button>
-        <div className="muted" style={{ marginTop: 8 }}>Демо-пополнение</div>
+      </div>
+      <div className="panel pad grid">
+        <div className="tiny">Trust Pay</div>
+        <h2 className="h2">Пополнить баланс</h2>
+        <p className="muted">Минимум 30 ₽. Комиссия 3% сверху. Перевод по номеру карты — сумма вводится здесь или в боте, на странице оплаты её изменить нельзя.</p>
+        <input inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value.replace(",", "."))} placeholder="Сумма пополнения" />
+        <div className="presets">
+          {["100", "300", "500", "1000", "2000"].map((n) => (
+            <button key={n} className={amount === n ? "on" : ""} onClick={() => setAmount(n)}>{n} ₽</button>
+          ))}
+        </div>
+        {create.error && <div className="err">{(create.error as ApiError).message}</div>}
+        <button className="btn block" disabled={create.isPending} onClick={() => create.mutate()}>Перейти к оплате</button>
       </div>
       <h2 className="h2">История операций</h2>
-      {(data?.items || []).length === 0 && <div className="empty">История операций пуста</div>}
+      {(pays.data?.items || []).map((p: any) => (
+        <Link key={p.public_id} to={`/pay/${p.public_id}`} className="between panel pad">
+          <div>
+            <b>Trust Pay · {p.public_id}</b>
+            <div className="muted">{formatRub(p.amount)} + комиссия {formatRub(p.fee)} · перевод {formatRub(p.total)}</div>
+            <div className="muted">{p.created_at ? new Date(p.created_at).toLocaleString("ru") : ""}</div>
+          </div>
+          <span className={`badge ${payStatusTone(p.status)}`}>{payStatusLabel(p.status)}</span>
+        </Link>
+      ))}
+      {(data?.items || []).length === 0 && !(pays.data?.items || []).length && <div className="empty">История операций пуста</div>}
       {(data?.items || []).map((t: any) => (
         <div key={t.id} className="between panel pad">
           <div>
@@ -425,6 +457,7 @@ function AdminPage({ path }: { path: string }) {
   const mirrors = useQuery({ queryKey: ["adm-mirrors"], queryFn: () => api("/admin/mirrors"), enabled: path === "mirrors" });
   const analytics = useQuery({ queryKey: ["adm-an"], queryFn: () => api("/admin/analytics?period=7d"), enabled: path === "analytics" });
   const settings = useQuery({ queryKey: ["adm-set"], queryFn: () => api("/admin/settings"), enabled: path === "settings" });
+  const trustPays = useQuery({ queryKey: ["adm-tp"], queryFn: () => api("/admin/trust-pay"), enabled: path === "trust-pay" });
   const [mirror, setMirror] = useState({ name: "Aurora", slug: "aurora", markup_percent: "10", description: "Зеркало Aurora" });
   const createMirror = useMutation({
     mutationFn: () => api("/admin/mirrors", { method: "POST", body: JSON.stringify(mirror) }),
@@ -437,6 +470,14 @@ function AdminPage({ path }: { path: string }) {
   const patchProduct = useMutation({
     mutationFn: ({ id, enabled }: any) => api(`/admin/products/${id}`, { method: "PATCH", body: JSON.stringify({ enabled }) }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["adm-products"] }),
+  });
+  const confirmPay = useMutation({
+    mutationFn: (id: number | string) => api(`/admin/trust-pay/${id}/confirm`, { method: "POST" }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["adm-tp"] }),
+  });
+  const failPay = useMutation({
+    mutationFn: (id: number | string) => api(`/admin/trust-pay/${id}/fail`, { method: "POST" }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["adm-tp"] }),
   });
 
   if (path === "users") {
@@ -503,6 +544,31 @@ function AdminPage({ path }: { path: string }) {
             <div className="num">{formatRub(m.revenue)}</div>
           </div>
         ))}
+      </div>
+    );
+  }
+  if (path === "trust-pay") {
+    return (
+      <div className="grid">
+        <h1 className="h1 display">Trust Pay</h1>
+        {(trustPays.data?.items || []).map((p: any) => (
+          <div key={p.id} className="panel pad grid">
+            <div className="between">
+              <b>{p.public_id}</b>
+              <span className={`badge ${payStatusTone(p.status)}`}>{payStatusLabel(p.status)}</span>
+            </div>
+            <div className="muted">user {p.user_id} · tg {p.telegram_id} · @{p.username || "—"}</div>
+            <div className="num">{formatRub(p.amount)} + {formatRub(p.fee)} = {formatRub(p.total)}</div>
+            <div className="muted">{p.created_at ? new Date(p.created_at).toLocaleString("ru") : ""}{p.paid_at ? ` · paid ${new Date(p.paid_at).toLocaleString("ru")}` : ""}</div>
+            {(p.status === "pending" || p.status === "processing") && (
+              <div className="row">
+                <button className="btn" onClick={() => confirmPay.mutate(p.id)}>Подтвердить</button>
+                <button className="btn ghost" onClick={() => failPay.mutate(p.id)}>Отклонить</button>
+              </div>
+            )}
+          </div>
+        ))}
+        {!(trustPays.data?.items || []).length && <div className="empty">Платежей пока нет</div>}
       </div>
     );
   }
@@ -612,6 +678,7 @@ export default function App() {
         <Route path="/orders" element={<Orders />} />
         <Route path="/orders/:id" element={<OrderPage />} />
         <Route path="/balance" element={<Balance me={me.data} />} />
+        <Route path="/pay/:id" element={<TrustPayPage />} />
         <Route path="/transactions" element={<Transactions />} />
         <Route path="/referrals" element={<Referrals />} />
         <Route path="/profile" element={<Profile me={me.data} />} />
@@ -621,6 +688,7 @@ export default function App() {
         <Route path="/admin/products" element={<AdminPage path="products" />} />
         <Route path="/admin/mirrors" element={<AdminPage path="mirrors" />} />
         <Route path="/admin/analytics" element={<AdminPage path="analytics" />} />
+        <Route path="/admin/trust-pay" element={<AdminPage path="trust-pay" />} />
         <Route path="/admin/settings" element={<AdminPage path="settings" />} />
         <Route path="*" element={<Navigate to="/" />} />
       </Routes>

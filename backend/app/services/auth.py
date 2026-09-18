@@ -64,7 +64,7 @@ def provision_user(
         )
         db.add(user)
         db.flush()
-        bonus = money(settings.bootstrap_balance_rub) if role == Role.SUPERADMIN.value or settings.demo_mode else money(0)
+        bonus = money(settings.bootstrap_balance_rub) if role == Role.SUPERADMIN.value else money(0)
         db.add(Balance(user_id=user.id, amount=bonus, currency="RUB"))
         if bonus > 0:
             db.add(

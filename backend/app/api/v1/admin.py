@@ -18,13 +18,13 @@ from app.models import (
     Mirror,
     MirrorTransaction,
     Order,
+    Payment,
     Product,
     Transaction,
     User,
 )
 from app.services.audit import write_audit
 from app.services.orders import _lock_balance, refund_order
-from app.services.payments import get_payment_provider
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -467,6 +467,59 @@ def settings_get(actor: User = Depends(require("settings.write")), db: Session =
             "referral_percent": s.referral_percent,
             "mirrors_enabled": s.mirrors_enabled,
             "tgstars_enabled": s.tgstars_enabled,
-            "payments_enabled": s.payments_enabled,
+            "payments_enabled": True,
+            "trust_pay_fee_percent": s.trust_pay_fee_percent,
+            "trust_pay_min_amount": s.trust_pay_min_amount,
         },
     }
+
+
+@router.get("/trust-pay")
+def admin_trust_pay(
+    page: int = 1,
+    limit: int = 50,
+    status: str | None = None,
+    actor: User = Depends(require("orders.read")),
+    db: Session = Depends(get_db),
+):
+    from app.services.trust_pay import payment_public
+
+    stmt = select(Payment).where(Payment.provider == "trust_pay")
+    if status:
+        stmt = stmt.where(Payment.status == status)
+    items = list(db.scalars(stmt.order_by(Payment.id.desc()).offset((page - 1) * limit).limit(limit)))
+    out = []
+    for p in items:
+        owner = db.get(User, p.user_id)
+        out.append(payment_public(p, user=owner))
+    return {"success": True, "data": {"items": out, "page": page}}
+
+
+@router.post("/trust-pay/{payment_id}/confirm")
+def admin_trust_confirm(payment_id: str, actor: User = Depends(require("balance.adjust")), db: Session = Depends(get_db)):
+    from app.services.trust_pay import confirm_payment, payment_public
+
+    pay = _trust_get(db, payment_id)
+    pay = confirm_payment(db, pay, actor)
+    owner = db.get(User, pay.user_id)
+    return {"success": True, "data": payment_public(pay, user=owner)}
+
+
+@router.post("/trust-pay/{payment_id}/fail")
+def admin_trust_fail(payment_id: str, actor: User = Depends(require("balance.adjust")), db: Session = Depends(get_db)):
+    from app.services.trust_pay import fail_payment, payment_public
+
+    pay = _trust_get(db, payment_id)
+    pay = fail_payment(db, pay, actor)
+    return {"success": True, "data": payment_public(pay)}
+
+
+def _trust_get(db: Session, payment_id: str) -> Payment:
+    if payment_id.isdigit():
+        pay = db.get(Payment, int(payment_id))
+    else:
+        pay = db.scalar(select(Payment).where(Payment.public_id == payment_id))
+    if not pay:
+        raise NotFoundError("Платёж не найден")
+    return pay
+
