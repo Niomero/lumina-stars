@@ -145,7 +145,7 @@ DIGITAL = [
         "price": Decimal("0.00"),
         "delivery_type": "manual",
         "amount_mode": "custom",
-        "markup_percent": Decimal("10.00"),
+        "markup_percent": Decimal("2.50"),
         "min_amount": Decimal("100.00"),
         "max_amount": Decimal("15000.00"),
         "sort_order": 1,
@@ -199,7 +199,10 @@ def seed(db: Session) -> None:
             continue
         db.add(Product(**item, enabled=True, provider="tgstars"))
     for item in DIGITAL:
-        if db.scalar(select(DigitalProduct.id).where(DigitalProduct.slug == item["slug"])):
+        existing = db.scalar(select(DigitalProduct).where(DigitalProduct.slug == item["slug"]))
+        if existing:
+            if item["slug"] == "steam-topup" and existing.markup_percent != item["markup_percent"]:
+                existing.markup_percent = item["markup_percent"]
             continue
         extra = item.get("extra_fields")
         payload = {k: v for k, v in item.items() if k != "extra_fields"}

@@ -98,9 +98,9 @@ def test_steam_custom_amount_by_login(client):
     data = ok.json()["data"]
     assert data["status"] == "processing"
     assert data["extra"]["steam_login"] == "playerone"
-    assert data["price"] == "550.00"
+    assert data["price"] == "512.50"
     after = float(client.get("/api/v1/me", headers=headers).json()["data"]["balance"])
-    assert round(before - after, 2) == 550.00
+    assert round(before - after, 2) == 512.50
 
 
 def test_roblox_requires_username(client):
