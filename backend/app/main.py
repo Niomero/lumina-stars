@@ -89,5 +89,12 @@ if STATIC_DIR.exists():
             return JSONResponse({"success": False, "error": {"code": "NOT_FOUND", "message": "Not found"}}, 404)
         index = STATIC_DIR / "index.html"
         if index.exists():
-            return FileResponse(index)
+            return FileResponse(
+                index,
+                headers={
+                    "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+                    "Pragma": "no-cache",
+                    "Expires": "0",
+                },
+            )
         return JSONResponse({"success": False, "error": {"code": "NO_FRONTEND", "message": "Frontend is not built"}}, 404)
