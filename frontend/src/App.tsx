@@ -110,6 +110,7 @@ function Shell({ me, children }: { me: Me; children: React.ReactNode }) {
               ["/admin/transactions", "Транзакции"],
               ["/admin/products", "Товары"],
               ["/admin/promos", "Промокоды"],
+              ["/admin/pricing", "Цены и акции"],
               ["/admin/mirrors", "Зеркала"],
               ["/admin/analytics", "Аналитика"],
               ...(me.role === "ADMIN" || me.role === "SUPERADMIN" ? [["/admin/audit", "Журнал"]] : []),
@@ -129,6 +130,7 @@ function Shell({ me, children }: { me: Me; children: React.ReactNode }) {
                 ["/admin/trust-pay", "Платежи"],
                 ["/admin/users", "Люди"],
                 ["/admin/promos", "Промо"],
+                ["/admin/pricing", "Цены"],
                 ["/admin/orders", "Заказы"],
               ].map(([to, label]) => {
                 const active = to === "/admin" ? loc.pathname === "/admin" : loc.pathname.startsWith(to);
@@ -226,7 +228,11 @@ function Catalog() {
               <b>{p.name}</b>
               <div className="muted">{p.description}</div>
             </div>
-            <b className="num">{formatRub(p.preview_total)}</b>
+            <div style={{ textAlign: "right" }}>
+              {p.sale_percent && Number(p.sale_percent) > 0 ? <span className="badge ok">−{Number(p.sale_percent)}%</span> : null}
+              {p.compare_at ? <div className="muted compare">{formatRub(p.compare_at)}</div> : null}
+              <b className="num">{formatRub(p.preview_total)}</b>
+            </div>
           </Link>
         );
       })}
@@ -308,7 +314,15 @@ function ProductPage({ me }: { me: Me }) {
         <h1 className="h1 display">{data.name}</h1>
         <p className="muted lead">{data.description}</p>
         <div className="tiny">Текущая цена</div>
-        <div className="h2 num">{formatRub(data.unit_price)}{unitHint}</div>
+        {data.compare_at ? (
+          <div className="h2 num">
+            <span className="compare">{formatRub(Number(data.compare_at) / Math.max(1, data.quantity))}</span>{" "}
+            {formatRub(data.unit_price)}{unitHint}
+          </div>
+        ) : (
+          <div className="h2 num">{formatRub(data.unit_price)}{unitHint}</div>
+        )}
+        {data.sale_name ? <div className="badge ok">{data.sale_name} −{Number(data.sale_percent)}%</div> : null}
       </div>
       {data.kind === "stars" && (
         <>
@@ -336,6 +350,9 @@ function ProductPage({ me }: { me: Me }) {
       {deal?.kind && deal.kind !== "balance" && <div className="muted ok-line">{deal.message}</div>}
       <div className="panel pad">
         <div className="between"><span className="muted">Итог</span><b>{data.quantity} × {formatRub(data.unit_price)}</b></div>
+        {data.compare_at && Number(data.compare_at) > Number(data.total) && (
+          <div className="between"><span className="muted">Без акции</span><span className="compare">{formatRub(data.compare_at)}</span></div>
+        )}
         {deal?.discount && Number(deal.discount) > 0 && (
           <div className="between"><span className="muted">Скидка</span><b>−{formatRub(deal.discount)}</b></div>
         )}

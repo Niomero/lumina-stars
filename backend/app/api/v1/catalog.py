@@ -35,7 +35,16 @@ def catalog(
     for product in products:
         qty = product.min_quantity
         quote = quote_product(db, product, qty, mirror, tgstars)
-        item = product_public(product, unit_price=quote["unit_price"], total=quote["total"])
+        item = product_public(
+            product,
+            unit_price=quote["unit_price"],
+            total=quote["total"],
+            extra={
+                "sale_percent": str(quote.get("sale_percent") or "0.00"),
+                "sale_name": quote.get("sale_name"),
+                "compare_at": str(quote["compare_at"]) if quote.get("compare_at") else None,
+            },
+        )
         item["quantity"] = quote["quantity"]
         items.append(item)
     if price_min is not None:

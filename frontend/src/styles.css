@@ -946,3 +946,23 @@ body.trust-body {
   70% { box-shadow: 0 0 0 12px transparent; }
   100% { box-shadow: 0 0 0 0 transparent; }
 }
+
+.compare {
+  text-decoration: line-through;
+  opacity: .55;
+  font-weight: 400;
+  margin-right: 6px;
+}
+.admin-lock {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  margin: 0;
+  max-width: none;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: var(--bg);
+}
+.admin-lock .panel { width: min(420px, 100%); }
+

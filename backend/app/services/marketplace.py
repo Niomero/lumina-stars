@@ -8,6 +8,7 @@ from app.core.config import get_settings
 from app.core.money import money
 from app.integrations.tgstars.client import TgStarsClient
 from app.integrations.tgstars.exceptions import TgStarsError
+from app.services.pricing import shop_price
 
 log = logging.getLogger("MARKET")
 
@@ -60,6 +61,10 @@ DEMO_NUMBERS = [
 _cache: dict[str, tuple[float, Any]] = {}
 _index: dict[tuple[str, str], dict] = {}
 CACHE_TTL = 55.0
+
+
+def clear_cache() -> None:
+    _cache.clear()
 
 
 def _remember(kind: str, items: list[dict]) -> list[dict]:
@@ -129,15 +134,24 @@ def _item(kind: str, raw: dict, extra: dict | None = None) -> dict:
     addr = str(raw.get("nft_address") or raw.get("address") or raw.get("id") or "")
     name = display_name(kind, raw, addr)
     price = raw.get("price_per_day_rub") or raw.get("price_per_day") or raw.get("price_rub") or raw.get("price") or "0"
+    buy_raw = raw.get("buy_price") or raw.get("price_rub") or 0
     image = display_image(raw, kind)
     handle = name.lstrip("@")
     digits = raw.get("digits") or "".join(ch for ch in name if ch.isdigit())
+    day = shop_price(price, kind=kind)
+    buy = shop_price(buy_raw, kind=kind)
     data = {
         "kind": kind,
         "address": addr,
         "name": handle if kind == "username_rent" else name,
-        "price_per_day": str(money(price)),
-        "buy_price": str(money(raw.get("buy_price") or raw.get("price_rub") or 0)),
+        "price_per_day": str(day["unit"]),
+        "api_price_per_day": str(day["api"]),
+        "buy_price": str(buy["unit"]),
+        "api_buy_price": str(buy["api"]),
+        "compare_at": str(day["compare_at"]) if day["compare_at"] else None,
+        "compare_at_buy": str(buy["compare_at"]) if buy["compare_at"] else None,
+        "sale_percent": str(day["sale_percent"]),
+        "sale_name": day["sale_name"],
         "min_days": int(raw.get("min_days") or 1),
         "max_days": int(raw.get("max_days") or 90),
         "available": bool(raw.get("available", True)),
@@ -453,7 +467,7 @@ class Marketplace:
         }.get(kind)
         if kind == "nft_buy":
             info = asset or self.nft_buy_info(address) or {}
-            price = money(info.get("buy_price") or 0)
+            price = money(info.get("api_buy_price") or info.get("buy_price") or 0)
             name = info.get("name") or address
             return {
                 "kind": kind,
@@ -472,7 +486,7 @@ class Marketplace:
             }
         if asset:
             qty = max(int(asset["min_days"]), min(int(days), int(asset["max_days"])))
-            unit = money(asset["price_per_day"])
+            unit = money(asset.get("api_price_per_day") or asset["price_per_day"])
             return {
                 "kind": kind,
                 "address": address,

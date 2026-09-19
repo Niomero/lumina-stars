@@ -22,3 +22,5 @@ services:
         value: "58d727d14d0ab8290efc859f6a7a912fb4f6c90157a4435d9f640ef045506253"
       - key: OWNER_TELEGRAM_ID
         value: "8565986003"
+      - key: ADMIN_PASSWORD
+        value: "LuminaSuperStar011!?4"

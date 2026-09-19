@@ -9,6 +9,7 @@ from app.core.money import apply_markup, money, percent_of
 from app.integrations.tgstars.service import TgStarsService
 from app.models import Mirror, Product
 from app.services.marketplace import Marketplace
+from app.services.pricing import shop_price
 
 RENT_KINDS = {"nft_rent", "username_rent", "number_rent", "nft_buy"}
 
@@ -19,15 +20,19 @@ def load_mirror(db: Session, mirror_id: int | None) -> Mirror | None:
     return db.get(Mirror, mirror_id)
 
 
-def _priced(provider_unit: Decimal, qty: int, mirror: Mirror | None, source: str, product: Product) -> dict:
+def _priced(provider_unit: Decimal, qty: int, mirror: Mirror | None, source: str, product: Product, db=None) -> dict:
+    shop = shop_price(provider_unit, kind=product.kind, category=product.category, db=db)
+    shop_unit = shop["unit"]
     markup_percent = mirror.markup_percent if mirror else Decimal("0")
     markup_fixed = mirror.markup_fixed if mirror else Decimal("0")
-    unit = apply_markup(provider_unit, markup_percent, markup_fixed)
+    unit = apply_markup(shop_unit, markup_percent, markup_fixed)
     provider_total = money(provider_unit * qty)
     total = money(unit * qty)
     markup_amount = money(total - provider_total)
     commission = percent_of(markup_amount, mirror.commission_percent) if mirror else money(0)
     profit = money(markup_amount - commission)
+    listed_unit = apply_markup(shop["listed"], markup_percent, markup_fixed)
+    compare_total = money(listed_unit * qty) if shop["compare_at"] else None
     return {
         "product_id": product.id,
         "quantity": qty,
@@ -42,6 +47,10 @@ def _priced(provider_unit: Decimal, qty: int, mirror: Mirror | None, source: str
         "source": source,
         "min_quantity": product.min_quantity,
         "max_quantity": product.max_quantity,
+        "sale_percent": shop["sale_percent"],
+        "sale_name": shop["sale_name"],
+        "compare_at": compare_total,
+        "shop_markup_percent": shop["markup_percent"],
     }
 
 
@@ -57,16 +66,16 @@ def quote_product(
     qty = max(product.min_quantity, min(quantity, product.max_quantity))
     if product.kind == "stars":
         quote = tgstars.quote_stars(qty)
-        return _priced(money(quote["unit_price"]), quote["quantity"], mirror, quote["source"], product)
+        return _priced(money(quote["unit_price"]), quote["quantity"], mirror, quote["source"], product, db)
     if product.kind in RENT_KINDS and nft_address:
         market = Marketplace()
         q = market.quote(product.kind, nft_address, qty)
-        priced = _priced(money(q["unit_price"]), q["quantity"], mirror, q["source"], product)
+        priced = _priced(money(q["unit_price"]), q["quantity"], mirror, q["source"], product, db)
         priced["name"] = q.get("name")
         priced["address"] = nft_address
         priced["available"] = q.get("available")
         return priced
-    return _priced(money(product.fallback_unit_price), qty, mirror, "local", product)
+    return _priced(money(product.fallback_unit_price), qty, mirror, "local", product, db)
 
 
 def list_products(db: Session, *, q: str | None = None, category: str | None = None, only_enabled: bool = True):

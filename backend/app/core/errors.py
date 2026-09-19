@@ -28,3 +28,8 @@ class NotFoundError(AppError):
 class InsufficientBalance(AppError):
     def __init__(self, message: str = "Недостаточно средств"):
         super().__init__("INSUFFICIENT_BALANCE", message, 402)
+
+
+class AdminLocked(AppError):
+    def __init__(self, message: str = "Введите пароль администратора"):
+        super().__init__("ADMIN_LOCKED", message, 403)

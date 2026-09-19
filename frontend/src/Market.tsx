@@ -23,6 +23,10 @@ type Asset = {
   kind: string;
   product_id?: number;
   image?: string | null;
+  compare_at?: string | null;
+  compare_at_buy?: string | null;
+  sale_percent?: string;
+  sale_name?: string | null;
 };
 
 const GLYPHS: Record<string, ReactNode> = {
@@ -363,7 +367,18 @@ export function RentNftPage({ mode }: { mode: "rent" | "buy" }) {
             <GiftArt tone={g.tone} motif={g.motif} name={g.name} image={g.image} />
             <b>{prettyName(kind, g.name, g.address)}</b>
             <div className="muted">
-              {mode === "buy" ? formatRub(g.buy_price || g.price_per_day) : `${formatRub(g.price_per_day)} / день`}
+              {g.sale_percent && Number(g.sale_percent) > 0 ? <span className="badge ok">−{Number(g.sale_percent)}%</span> : null}{" "}
+              {mode === "buy" ? (
+                <>
+                  {g.compare_at_buy ? <span className="compare">{formatRub(g.compare_at_buy)} </span> : null}
+                  {formatRub(g.buy_price || g.price_per_day)}
+                </>
+              ) : (
+                <>
+                  {g.compare_at ? <span className="compare">{formatRub(g.compare_at)} </span> : null}
+                  {formatRub(g.price_per_day)} / день
+                </>
+              )}
             </div>
           </Link>
         ))}
@@ -444,7 +459,11 @@ export function RentListPage({ kind }: { kind: "username_rent" | "number_rent" }
         <Link key={g.address} to={`/asset/${kind}/${g.address}`} className="panel handle-row between">
           <div>
             <b className="display handle">{prettyName(kind, g.name, g.address)}</b>
-            <div className="muted">{formatRub(g.price_per_day)} / день</div>
+            <div className="muted">
+              {g.compare_at ? <span className="compare">{formatRub(g.compare_at)} </span> : null}
+              {formatRub(g.price_per_day)} / день
+              {g.sale_percent && Number(g.sale_percent) > 0 ? <span className="badge ok"> −{Number(g.sale_percent)}%</span> : null}
+            </div>
           </div>
           <span className="badge">Аренда</span>
         </Link>
@@ -581,7 +600,13 @@ export function AssetPage({ me }: { me: { balance: string; username?: string } }
         </>
       )}
       <div className="panel pad">
-        <div className="between"><span className="muted">{kind === "nft_buy" ? "Цена" : "За день"}</span><b>{formatRub(quote.data.unit_price)}</b></div>
+        <div className="between">
+          <span className="muted">{kind === "nft_buy" ? "Цена" : "За день"}</span>
+          <b>
+            {quote.data.compare_at ? <span className="compare">{formatRub(Number(quote.data.compare_at) / Math.max(1, quote.data.quantity))}</span> : null}
+            {formatRub(quote.data.unit_price)}
+          </b>
+        </div>
         <div className="between"><span className="muted">Итого</span><b className="h2 num">{formatRub(quote.data.total)}</b></div>
         <div className="between"><span className="muted">Баланс после</span><span className="num">{formatRub(after)}</span></div>
       </div>

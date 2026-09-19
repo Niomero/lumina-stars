@@ -34,6 +34,30 @@ def decode_access_token(token: str) -> dict:
         raise AuthError("Сессия недействительна") from exc
 
 
+def create_admin_token(user_id: int) -> str:
+    settings = get_settings()
+    payload = {
+        "sub": str(user_id),
+        "typ": "admin",
+        "exp": datetime.now(timezone.utc) + timedelta(hours=settings.admin_unlock_hours),
+        "iat": datetime.now(timezone.utc),
+    }
+    return jwt.encode(payload, settings.jwt_secret, algorithm="HS256")
+
+
+def decode_admin_token(token: str) -> dict:
+    from app.core.errors import AdminLocked
+
+    settings = get_settings()
+    try:
+        payload = jwt.decode(token, settings.jwt_secret, algorithms=["HS256"])
+    except JWTError as exc:
+        raise AdminLocked("Сессия администратора истекла") from exc
+    if payload.get("typ") != "admin":
+        raise AdminLocked("Введите пароль администратора")
+    return payload
+
+
 def validate_telegram_init_data(init_data: str, max_age_seconds: int = 86400) -> dict:
     settings = get_settings()
     token = settings.telegram_bot_token

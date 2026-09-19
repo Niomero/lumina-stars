@@ -43,6 +43,10 @@ def client():
             session.close()
 
     app.dependency_overrides[get_db] = _get_db
+    from app.services.pricing import clear_pricing_cache
+
+    clear_pricing_cache()
     with TestClient(app) as c:
         yield c
     app.dependency_overrides.clear()
+    clear_pricing_cache()

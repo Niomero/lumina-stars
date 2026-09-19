@@ -295,3 +295,18 @@ class PromoRedemption(Base):
     order_id: Mapped[int | None] = mapped_column(ForeignKey("orders.id"), nullable=True)
     amount: Mapped[Decimal] = mapped_column(Money, default=Decimal("0.00"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+
+
+class Sale(Base):
+    __tablename__ = "sales"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(128))
+    percent: Mapped[Decimal] = mapped_column(Money, default=Decimal("0.00"))
+    categories: Mapped[str] = mapped_column(String(255), default="all")
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    starts_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    note: Mapped[str] = mapped_column(String(255), default="")
+    created_by: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

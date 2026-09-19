@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, Navigate, Route, Routes, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, ApiError } from "../api/client";
+import { api, ApiError, getAdminUnlock, setAdminUnlock } from "../api/client";
 import { formatRub, payStatusLabel, payStatusTone, roleLabel, statusLabel, statusTone, txTypeLabel, when } from "../lib/format";
 
 type Me = { id: number; role: string; first_name?: string; is_owner?: boolean };
@@ -723,7 +723,175 @@ function PromosAdmin({ me }: { me: Me }) {
   );
 }
 
+function PricingAdmin({ me }: { me: Me }) {
+  const qc = useQueryClient();
+  const write = canWrite(me.role);
+  const pricing = useQuery({ queryKey: ["adm-pricing"], queryFn: () => api("/admin/pricing") });
+  const [globalPct, setGlobalPct] = useState("");
+  const [cats, setCats] = useState<Record<string, string>>({});
+  const [sale, setSale] = useState({ name: "", percent: "10", categories: "all", expires_at: "" });
+  const [newPass, setNewPass] = useState("");
+  useEffect(() => {
+    if (!pricing.data) return;
+    setGlobalPct(String(Number(pricing.data.global_percent)));
+    const next: Record<string, string> = {};
+    Object.entries(pricing.data.categories || {}).forEach(([k, v]) => {
+      next[k] = v == null ? "" : String(Number(v));
+    });
+    setCats(next);
+  }, [pricing.data]);
+  const save = useMutation({
+    mutationFn: () =>
+      api("/admin/pricing", {
+        method: "PUT",
+        body: JSON.stringify({
+          global_percent: globalPct || "0",
+          categories: Object.fromEntries(Object.entries(cats).map(([k, v]) => [k, v === "" ? null : Number(v)])),
+          admin_password: newPass || undefined,
+        }),
+      }),
+    onSuccess: () => {
+      setNewPass("");
+      qc.invalidateQueries({ queryKey: ["adm-pricing"] });
+      qc.invalidateQueries({ queryKey: ["catalog"] });
+    },
+  });
+  const createSale = useMutation({
+    mutationFn: () =>
+      api("/admin/sales", {
+        method: "POST",
+        body: JSON.stringify({
+          name: sale.name,
+          percent: sale.percent,
+          categories: sale.categories,
+          enabled: true,
+          expires_at: sale.expires_at ? new Date(sale.expires_at).toISOString() : undefined,
+        }),
+      }),
+    onSuccess: () => {
+      setSale({ name: "", percent: "10", categories: "all", expires_at: "" });
+      qc.invalidateQueries({ queryKey: ["adm-pricing"] });
+      qc.invalidateQueries({ queryKey: ["catalog"] });
+    },
+  });
+  const patchSale = useMutation({
+    mutationFn: ({ id, body }: { id: number; body: object }) =>
+      api(`/admin/sales/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["adm-pricing"] });
+      qc.invalidateQueries({ queryKey: ["catalog"] });
+    },
+  });
+  const labels: Record<string, string> = { stars: "Stars", premium: "Premium", nft: "NFT", username: "Username", number: "Номера" };
+  return (
+    <div className="grid">
+      <h1 className="h1 display">Цены и акции</h1>
+      <p className="muted lead">Процент к цене API: плюс — наценка, минус — скидка на весь магазин. Акция даёт дополнительную скидку сверху.</p>
+      <div className="panel pad grid">
+        <div className="tiny">Наценка к API</div>
+        <label className="tiny">Все товары, %
+          <input inputMode="decimal" value={globalPct} onChange={(e) => setGlobalPct(e.target.value)} placeholder="0" />
+        </label>
+        <div className="filter-price">
+          {Object.keys(labels).map((k) => (
+            <label key={k} className="tiny">{labels[k]}, %
+              <input inputMode="decimal" placeholder="как все" value={cats[k] ?? ""} onChange={(e) => setCats({ ...cats, [k]: e.target.value })} />
+            </label>
+          ))}
+        </div>
+        {write && me.role === "SUPERADMIN" && (
+          <label className="tiny">Новый пароль админки
+            <input type="password" autoComplete="new-password" value={newPass} onChange={(e) => setNewPass(e.target.value)} placeholder="оставить как есть" />
+          </label>
+        )}
+        <Err e={save.error} />
+        {write && <button className="btn block" disabled={save.isPending} onClick={() => save.mutate()}>Сохранить цены</button>}
+      </div>
+      {write && (
+        <div className="panel pad grid">
+          <div className="tiny">Новая акция</div>
+          <input placeholder="Название, например −20% на Stars" value={sale.name} onChange={(e) => setSale({ ...sale, name: e.target.value })} />
+          <input inputMode="decimal" placeholder="Скидка %" value={sale.percent} onChange={(e) => setSale({ ...sale, percent: e.target.value })} />
+          <div className="chips">
+            {[["all", "Все"], ["stars", "Stars"], ["premium", "Premium"], ["nft", "NFT"], ["username", "Username"], ["number", "Номера"]].map(([k, l]) => (
+              <button key={k} className={sale.categories === k ? "on" : ""} onClick={() => setSale({ ...sale, categories: k })}>{l}</button>
+            ))}
+          </div>
+          <label className="tiny">До
+            <input type="datetime-local" value={sale.expires_at} onChange={(e) => setSale({ ...sale, expires_at: e.target.value })} />
+          </label>
+          <Err e={createSale.error} />
+          <button className="btn block" disabled={createSale.isPending || !sale.name.trim()} onClick={() => createSale.mutate()}>Запустить акцию</button>
+        </div>
+      )}
+      {(pricing.data?.sales || []).map((s: any) => (
+        <div key={s.id} className="panel pad grid">
+          <div className="between">
+            <div>
+              <b>{s.name}</b>
+              <div className="muted">−{Number(s.percent)}% · {s.categories === "all" ? "все категории" : s.categories}{s.expires_at ? ` · до ${when(s.expires_at)}` : ""}</div>
+            </div>
+            <span className={`badge ${s.enabled ? "ok" : "bad"}`}>{s.enabled ? "Активна" : "Выкл"}</span>
+          </div>
+          {write && (
+            <button className="btn ghost sm" disabled={patchSale.isPending} onClick={() => patchSale.mutate({ id: s.id, body: { enabled: !s.enabled } })}>
+              {s.enabled ? "Остановить" : "Включить"}
+            </button>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function AdminLock({ onUnlock }: { onUnlock: () => void }) {
+  const [password, setPassword] = useState("");
+  const unlock = useMutation({
+    mutationFn: () => api("/admin/unlock", { method: "POST", body: JSON.stringify({ password }) }),
+    onSuccess: (d: any) => {
+      setAdminUnlock(d.token);
+      onUnlock();
+    },
+  });
+  return (
+    <div className="grid admin-lock">
+      <div className="panel pad grid">
+        <div className="tiny">Админ-панель</div>
+        <h1 className="h1 display">Пароль</h1>
+        <p className="muted">Сначала введите пароль администратора. Без него панель недоступна.</p>
+        <input
+          type="password"
+          autoComplete="current-password"
+          placeholder="Пароль"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && password && unlock.mutate()}
+        />
+        <Err e={unlock.error} />
+        <button className="btn block" disabled={!password || unlock.isPending} onClick={() => unlock.mutate()}>Войти</button>
+      </div>
+    </div>
+  );
+}
+
 export function AdminApp({ me }: { me: Me }) {
+  const [unlocked, setUnlocked] = useState(Boolean(getAdminUnlock()));
+  const status = useQuery({
+    queryKey: ["admin-unlock"],
+    queryFn: () => api("/admin/unlock"),
+    retry: false,
+  });
+  useEffect(() => {
+    if (status.data?.unlocked) setUnlocked(true);
+    if (status.data && status.data.unlocked === false) setUnlocked(false);
+  }, [status.data]);
+  useEffect(() => {
+    const lock = () => setUnlocked(false);
+    window.addEventListener("lumina-admin-lock", lock);
+    return () => window.removeEventListener("lumina-admin-lock", lock);
+  }, []);
+  if (status.isLoading && !unlocked) return <div className="skeleton" />;
+  if (!unlocked) return <AdminLock onUnlock={() => { setUnlocked(true); status.refetch(); }} />;
   return (
     <Routes>
       <Route index element={<Dash me={me} />} />
@@ -735,6 +903,7 @@ export function AdminApp({ me }: { me: Me }) {
       <Route path="orders/:id" element={<OrderDetail me={me} />} />
       <Route path="products" element={<ProductsAdmin me={me} />} />
       <Route path="promos" element={<PromosAdmin me={me} />} />
+      <Route path="pricing" element={<PricingAdmin me={me} />} />
       <Route path="mirrors" element={<MirrorsAdmin me={me} />} />
       <Route path="transactions" element={<TransactionsAdmin />} />
       <Route path="analytics" element={<AnalyticsAdmin />} />

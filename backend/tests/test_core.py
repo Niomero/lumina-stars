@@ -10,7 +10,11 @@ def auth_header(client: TestClient) -> dict:
     res = client.post("/api/v1/auth/demo", json={"name": "Tester"})
     assert res.status_code == 200, res.text
     token = res.json()["data"]["token"]
-    return {"Authorization": f"Bearer {token}"}
+    headers = {"Authorization": f"Bearer {token}"}
+    unlock = client.post("/api/v1/admin/unlock", json={"password": "LuminaSuperStar011!?4"}, headers=headers)
+    assert unlock.status_code == 200, unlock.text
+    headers["X-Admin-Unlock"] = unlock.json()["data"]["token"]
+    return headers
 
 
 def credit(client, headers, amount: str):

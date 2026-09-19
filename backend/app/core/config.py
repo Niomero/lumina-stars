@@ -47,6 +47,8 @@ class Settings(BaseSettings):
     yoomoney_wallet: str = "4100119621450464"
 
     owner_telegram_id: int = 8565986003
+    admin_password: str = "LuminaSuperStar011!?4"
+    admin_unlock_hours: int = 8
 
     @property
     def sqlalchemy_url(self) -> str:

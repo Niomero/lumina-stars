@@ -1,16 +1,17 @@
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Header, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session, selectinload
 
-from app.api.deps import require
+from app.api.deps import require, require_staff
 from app.api.serializers import order_public, tx_public, user_public
 from app.core.errors import AppError, ForbiddenError, NotFoundError
 from app.core.money import money
 from app.core.rbac import ASSIGNABLE_ROLES, Role, STAFF_ROLES, is_owner_telegram
+from app.core.security import create_admin_token, decode_admin_token
 from app.db.session import get_db
 from app.models import (
     AuditLog,
@@ -22,14 +23,56 @@ from app.models import (
     Product,
     PromoCode,
     Referral,
+    Sale,
     Transaction,
     User,
 )
 from app.services.audit import write_audit
 from app.services.orders import _lock_balance, refund_order
+from app.services.pricing import (
+    CATS,
+    admin_password_ok,
+    pricing_public,
+    refresh_pricing,
+    sale_public,
+    set_admin_password,
+    upsert_setting,
+)
 from app.services.promos import generate_code, normalize_code, promo_public, validate_payload
 
 router = APIRouter(prefix="/admin", tags=["admin"])
+
+
+class UnlockIn(BaseModel):
+    password: str = Field(min_length=1, max_length=128)
+
+
+@router.post("/unlock")
+def admin_unlock(body: UnlockIn, user: User = Depends(require_staff), db: Session = Depends(get_db)):
+    if not admin_password_ok(db, body.password):
+        raise AppError("ADMIN_PASSWORD", "Неверный пароль администратора", 403)
+    write_audit(db, "admin.unlock", user.id, "admin")
+    db.commit()
+    token = create_admin_token(user.id)
+    from app.core.config import get_settings
+
+    hours = get_settings().admin_unlock_hours
+    return {"success": True, "data": {"token": token, "expires_in": hours * 3600}}
+
+
+@router.get("/unlock")
+def admin_unlock_status(
+    user: User = Depends(require_staff),
+    unlock: str | None = Header(default=None, alias="X-Admin-Unlock"),
+):
+    if not unlock:
+        return {"success": True, "data": {"unlocked": False}}
+    try:
+        payload = decode_admin_token(unlock)
+        ok = int(payload.get("sub") or 0) == user.id
+    except Exception:
+        ok = False
+    return {"success": True, "data": {"unlocked": ok}}
 
 
 def _period_from(period: str) -> datetime | None:
@@ -833,4 +876,99 @@ def delete_promo(promo_id: int, actor: User = Depends(require("promos.write")), 
     write_audit(db, "promo.disable", actor.id, "promo", promo.code)
     db.commit()
     return {"success": True, "data": {"id": promo.id, "enabled": False}}
+
+
+class PricingIn(BaseModel):
+    global_percent: Decimal
+    categories: dict[str, Decimal | None] | None = None
+    admin_password: str | None = None
+
+
+class SaleIn(BaseModel):
+    name: str = Field(min_length=2, max_length=128)
+    percent: Decimal
+    categories: str = "all"
+    enabled: bool = True
+    starts_at: datetime | None = None
+    expires_at: datetime | None = None
+    note: str = ""
+
+
+class SalePatch(BaseModel):
+    name: str | None = None
+    percent: Decimal | None = None
+    categories: str | None = None
+    enabled: bool | None = None
+    starts_at: datetime | None = None
+    expires_at: datetime | None = None
+    note: str | None = None
+
+
+@router.get("/pricing")
+def get_pricing(actor: User = Depends(require("pricing.read")), db: Session = Depends(get_db)):
+    sales = list(db.scalars(select(Sale).order_by(Sale.id.desc())))
+    data = pricing_public(db)
+    data["sales"] = [sale_public(s) for s in sales]
+    return {"success": True, "data": data}
+
+
+@router.put("/pricing")
+def put_pricing(body: PricingIn, actor: User = Depends(require("pricing.write")), db: Session = Depends(get_db)):
+    if body.global_percent < Decimal("-90") or body.global_percent > Decimal("300"):
+        raise AppError("INVALID_PERCENT", "Наценка от −90% до 300%")
+    upsert_setting(db, "price_percent", f"{money(body.global_percent):.2f}")
+    cats = body.categories or {}
+    for cat in CATS:
+        if cat not in cats:
+            continue
+        val = cats[cat]
+        upsert_setting(db, f"price_percent_{cat}", "" if val is None else f"{money(val):.2f}")
+    if body.admin_password:
+        set_admin_password(db, body.admin_password)
+        write_audit(db, "admin.password", actor.id, "admin")
+    write_audit(db, "pricing.update", actor.id, "pricing", payload={"global": str(body.global_percent)})
+    db.commit()
+    refresh_pricing(db)
+    return {"success": True, "data": pricing_public(db)}
+
+
+@router.post("/sales")
+def create_sale(body: SaleIn, actor: User = Depends(require("pricing.write")), db: Session = Depends(get_db)):
+    if body.percent <= 0 or body.percent > 90:
+        raise AppError("INVALID_PERCENT", "Скидка акции от 1% до 90%")
+    sale = Sale(
+        name=body.name.strip(),
+        percent=money(body.percent),
+        categories=body.categories or "all",
+        enabled=body.enabled,
+        starts_at=body.starts_at,
+        expires_at=body.expires_at,
+        note=(body.note or "")[:255],
+        created_by=actor.id,
+    )
+    db.add(sale)
+    write_audit(db, "sale.create", actor.id, "sale", body.name)
+    db.commit()
+    db.refresh(sale)
+    refresh_pricing(db)
+    return {"success": True, "data": sale_public(sale)}
+
+
+@router.patch("/sales/{sale_id}")
+def patch_sale(sale_id: int, body: SalePatch, actor: User = Depends(require("pricing.write")), db: Session = Depends(get_db)):
+    sale = db.get(Sale, sale_id)
+    if not sale:
+        raise NotFoundError("Акция не найдена")
+    data = body.model_dump(exclude_unset=True)
+    if "percent" in data and data["percent"] is not None:
+        if data["percent"] <= 0 or data["percent"] > 90:
+            raise AppError("INVALID_PERCENT", "Скидка акции от 1% до 90%")
+        data["percent"] = money(data["percent"])
+    for field, value in data.items():
+        setattr(sale, field, value)
+    write_audit(db, "sale.update", actor.id, "sale", sale.id)
+    db.commit()
+    db.refresh(sale)
+    refresh_pricing(db)
+    return {"success": True, "data": sale_public(sale)}
 

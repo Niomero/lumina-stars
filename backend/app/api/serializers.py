@@ -34,7 +34,7 @@ def user_public(user: User, balance=None, extra=None) -> dict:
     return data
 
 
-def product_public(product: Product, unit_price=None, total=None) -> dict:
+def product_public(product: Product, unit_price=None, total=None, extra=None) -> dict:
     data = {
         "id": product.id,
         "slug": product.slug,
@@ -54,6 +54,8 @@ def product_public(product: Product, unit_price=None, total=None) -> dict:
         data["unit_price"] = dec(unit_price)
     if total is not None:
         data["preview_total"] = dec(total)
+    if extra:
+        data.update(extra)
     return data
 
 
