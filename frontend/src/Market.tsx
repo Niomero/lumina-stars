@@ -230,25 +230,17 @@ export function GalleryHome({ me }: { me: { first_name?: string; balance: string
     <div className="grid gallery">
       <header className="hero-row">
         <div>
-          <div className="tiny">Lumina</div>
+          <div className="tiny">Товары</div>
           <h1 className="h1 display">Привет, {me.first_name || "гость"}</h1>
         </div>
         <Link to="/profile" className="logo-mark" aria-label="Профиль">L</Link>
       </header>
 
-      <div className="panel ledger">
-        <div className="tiny">Баланс</div>
-        <div className="between">
-          <div className="h1 display num">{formatRub(me.balance)}</div>
-          <Link to="/balance" className="btn ghost sm">Пополнить</Link>
-        </div>
-      </div>
-
       <div className="section-label">Отделения</div>
       <div className="doors">
         <Link to="/catalog?category=stars" className="panel door">
           <span className="idx">01</span>
-          <span className="tiny">Digital</span>
+          <span className="tiny">Telegram</span>
           <span className="h2 display">Stars</span>
         </Link>
         <Link to="/catalog?category=premium" className="panel door">
@@ -276,22 +268,9 @@ export function GalleryHome({ me }: { me: { first_name?: string; balance: string
           <span className="tiny">Коллекция</span>
           <span className="h2 display">Купить NFT</span>
         </Link>
-        <Link to="/digital" className="panel door alt">
-          <span className="idx">07</span>
-          <span className="tiny">Коды</span>
-          <span className="h2 display">Пополнения</span>
-        </Link>
-        <Link to="/games" className="panel door alt">
-          <span className="idx">08</span>
-          <span className="tiny">Roblox · Minecraft</span>
-          <span className="h2 display">Игры</span>
-        </Link>
-        <Link to="/giveaways" className="panel door alt">
-          <span className="idx">09</span>
-          <span className="tiny">Призы</span>
-          <span className="h2 display">Розыгрыши</span>
-        </Link>
       </div>
+
+      <Link to="/digital" className="btn block digital-cta">Digital товары</Link>
 
       <div className="between">
         <h2 className="h2 display">Витрина подарков</h2>

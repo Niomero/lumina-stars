@@ -3,6 +3,11 @@ from datetime import datetime, timedelta, timezone
 from tests.test_core import auth_header, credit
 
 
+def _gplay(client, headers):
+    items = client.get("/api/v1/digital/catalog", headers=headers).json()["data"]["items"]
+    return next(p for p in items if p["category"] == "google_play")
+
+
 def _steam(client, headers):
     items = client.get("/api/v1/digital/catalog", headers=headers).json()["data"]["items"]
     return next(p for p in items if p["category"] == "steam")
@@ -12,11 +17,11 @@ def test_digital_catalog_and_out_of_stock(client):
     headers = auth_header(client)
     cat = client.get("/api/v1/digital/catalog", headers=headers)
     assert cat.status_code == 200
-    steam = _steam(client, headers)
-    assert steam["in_stock"] is False
+    card = _gplay(client, headers)
+    assert card["in_stock"] is False
     buy = client.post(
         "/api/v1/digital/orders",
-        json={"product_id": steam["id"], "idempotency_key": "no-stock-key-1"},
+        json={"product_id": card["id"], "idempotency_key": "no-stock-key-1"},
         headers=headers,
     )
     assert buy.status_code == 400
@@ -25,10 +30,10 @@ def test_digital_catalog_and_out_of_stock(client):
 
 def test_digital_code_sold_once(client):
     headers = auth_header(client)
-    steam = _steam(client, headers)
+    card = _gplay(client, headers)
     add = client.post(
-        f"/api/v1/admin/digital/{steam['id']}/codes",
-        json={"codes": "STEAM-TEST-AAAA\nSTEAM-TEST-AAAA"},
+        f"/api/v1/admin/digital/{card['id']}/codes",
+        json={"codes": "GPLAY-TEST-AAAA\nGPLAY-TEST-AAAA"},
         headers=headers,
     )
     assert add.status_code == 200, add.text
@@ -36,27 +41,66 @@ def test_digital_code_sold_once(client):
     credit(client, headers, "2000")
     first = client.post(
         "/api/v1/digital/orders",
-        json={"product_id": steam["id"], "idempotency_key": "buy-steam-once"},
+        json={"product_id": card["id"], "idempotency_key": "buy-gplay-once"},
         headers=headers,
     )
     assert first.status_code == 200, first.text
     data = first.json()["data"]
     assert data["status"] == "completed"
-    assert data["code"] == "STEAM-TEST-AAAA"
+    assert data["code"] == "GPLAY-TEST-AAAA"
     again = client.post(
         "/api/v1/digital/orders",
-        json={"product_id": steam["id"], "idempotency_key": "buy-steam-once"},
+        json={"product_id": card["id"], "idempotency_key": "buy-gplay-once"},
         headers=headers,
     )
     assert again.json()["data"]["public_id"] == data["public_id"]
     second = client.post(
         "/api/v1/digital/orders",
-        json={"product_id": steam["id"], "idempotency_key": "buy-steam-two"},
+        json={"product_id": card["id"], "idempotency_key": "buy-gplay-two"},
         headers=headers,
     )
     assert second.status_code == 400
     got = client.get(f"/api/v1/digital/orders/{data['public_id']}", headers=headers).json()["data"]
-    assert got["code"] == "STEAM-TEST-AAAA"
+    assert got["code"] == "GPLAY-TEST-AAAA"
+
+
+def test_steam_custom_amount_by_login(client):
+    headers = auth_header(client)
+    steam = _steam(client, headers)
+    assert steam["amount_mode"] == "custom"
+    assert steam["in_stock"] is True
+    credit(client, headers, "2000")
+    miss = client.post(
+        "/api/v1/digital/orders",
+        json={"product_id": steam["id"], "extra": {"amount": "500"}, "idempotency_key": "steam-miss-login"},
+        headers=headers,
+    )
+    assert miss.json()["error"]["code"] == "MISSING_FIELD"
+    no_amt = client.post(
+        "/api/v1/digital/orders",
+        json={"product_id": steam["id"], "extra": {"steam_login": "playerone"}, "idempotency_key": "steam-miss-amt"},
+        headers=headers,
+    )
+    assert no_amt.json()["error"]["code"] == "INVALID_AMOUNT"
+    tiny = client.post(
+        "/api/v1/digital/orders",
+        json={"product_id": steam["id"], "extra": {"steam_login": "playerone", "amount": "50"}, "idempotency_key": "steam-tiny"},
+        headers=headers,
+    )
+    assert tiny.json()["error"]["code"] == "INVALID_AMOUNT"
+    before = float(client.get("/api/v1/me", headers=headers).json()["data"]["balance"])
+    ok = client.post(
+        "/api/v1/digital/orders",
+        json={"product_id": steam["id"], "extra": {"steam_login": "playerone", "amount": "500"}, "idempotency_key": "steam-ok-1"},
+        headers=headers,
+    )
+    assert ok.status_code == 200, ok.text
+    data = ok.json()["data"]
+    assert data["status"] == "processing"
+    assert data["extra"]["steam_login"] == "playerone"
+    assert data["price"] == "550.00"
+    after = float(client.get("/api/v1/me", headers=headers).json()["data"]["balance"])
+    assert round(before - after, 2) == 550.00
 
 
 def test_roblox_requires_username(client):
@@ -121,14 +165,14 @@ def test_giveaway_rejects_past_date(client):
 
 def test_giveaway_product_prize_does_not_charge(client):
     headers = auth_header(client)
-    steam = _steam(client, headers)
-    client.post(f"/api/v1/admin/digital/{steam['id']}/codes", json={"codes": "GIVE-STEAM-1"}, headers=headers)
+    card = _gplay(client, headers)
+    client.post(f"/api/v1/admin/digital/{card['id']}/codes", json={"codes": "GIVE-GPLAY-1"}, headers=headers)
     created = client.post(
         "/api/v1/admin/giveaways",
         json={
-            "title": "Steam ключ",
+            "title": "Google Play ключ",
             "reward_type": "product",
-            "reward_product_id": steam["id"],
+            "reward_product_id": card["id"],
             "winner_count": 1,
             "finish_type": "count",
             "max_participants": 1,
@@ -144,6 +188,6 @@ def test_giveaway_product_prize_does_not_charge(client):
     assert round(after - before, 2) == 0
     detail = client.get(f"/api/v1/giveaways/{gid}", headers=headers).json()["data"]
     assert detail["won"] is True
-    assert detail["prize_code"] == "GIVE-STEAM-1"
+    assert detail["prize_code"] == "GIVE-GPLAY-1"
     purchases = client.get("/api/v1/digital/orders", headers=headers).json()["data"]["items"]
     assert any(o["price"] == "0.00" for o in purchases)

@@ -21,6 +21,9 @@ const CATS: [string, string][] = [
   ["nintendo", "Nintendo"],
   ["roblox", "Roblox"],
   ["minecraft", "Minecraft"],
+  ["fortnite", "Fortnite"],
+  ["valorant", "Valorant"],
+  ["spotify", "Spotify"],
   ["other", "Другое"],
 ];
 

@@ -7,12 +7,12 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.errors import AppError, InsufficientBalance, NotFoundError
-from app.core.money import money
+from app.core.money import apply_markup, money
 from app.models import DigitalCode, DigitalOrder, DigitalProduct, Transaction, User
 from app.models.entities import utcnow
 from app.services.audit import write_audit
 from app.services.codes import decrypt_code, encrypt_code, hash_code, mask_code
-from app.services.notify import send_telegram
+from app.services.notify import notify_owner, send_telegram
 from app.services.orders import _lock_balance
 
 CATEGORIES = {
@@ -24,6 +24,9 @@ CATEGORIES = {
     "nintendo": "Nintendo",
     "roblox": "Roblox",
     "minecraft": "Minecraft",
+    "fortnite": "Fortnite",
+    "valorant": "Valorant",
+    "spotify": "Spotify",
     "other": "Другое",
 }
 GROUPS = {"topup": "Пополнения", "games": "Игры"}
@@ -46,6 +49,7 @@ def stock_of(db: Session, product_id: int) -> int:
 
 def product_public(db: Session, p: DigitalProduct, *, stock: int | None = None) -> dict:
     qty = stock if stock is not None else stock_of(db, p.id)
+    custom = (p.amount_mode or "fixed") == "custom"
     return {
         "id": p.id,
         "slug": p.slug,
@@ -60,11 +64,15 @@ def product_public(db: Session, p: DigitalProduct, *, stock: int | None = None) 
         "currency": p.currency,
         "face_value": p.face_value,
         "price": f"{money(p.price):.2f}",
+        "amount_mode": p.amount_mode or "fixed",
+        "markup_percent": f"{money(p.markup_percent):.2f}",
+        "min_amount": f"{money(p.min_amount):.2f}",
+        "max_amount": f"{money(p.max_amount):.2f}",
         "delivery_type": p.delivery_type,
         "extra_fields": p.extra_fields or [],
         "enabled": p.enabled,
         "stock": qty,
-        "in_stock": qty > 0 or p.delivery_type == "manual",
+        "in_stock": custom or qty > 0 or p.delivery_type == "manual",
     }
 
 
@@ -85,6 +93,7 @@ def order_public(order: DigitalOrder, *, reveal: bool = False) -> dict:
         "status": order.status,
         "extra": order.extra or {},
         "code": code,
+        "delivery_type": product.delivery_type if product else "code",
         "created_at": order.created_at.isoformat() if order.created_at else None,
     }
 
@@ -142,6 +151,44 @@ def _take_code(db: Session, product_id: int) -> DigitalCode | None:
     return db.scalars(stmt.limit(1)).first()
 
 
+def _collect_extra(product: DigitalProduct, extra: dict | None) -> tuple:
+    payload: dict = {}
+    fields = product.extra_fields or []
+    for field in fields:
+        name = field.get("key")
+        if not name or name == "amount":
+            continue
+        value = str((extra or {}).get(name) or "").strip()
+        if field.get("required") and not value:
+            raise AppError("MISSING_FIELD", f"Укажите {field.get('label') or name}")
+        if value:
+            payload[name] = value[:64]
+
+    custom = (product.amount_mode or "fixed") == "custom"
+    if custom:
+        raw = (extra or {}).get("amount")
+        try:
+            face = money(raw)
+        except Exception:
+            face = money(0)
+        if face <= 0:
+            raise AppError("INVALID_AMOUNT", "Укажите сумму пополнения")
+        min_a = money(product.min_amount)
+        max_a = money(product.max_amount)
+        if min_a > 0 and face < min_a:
+            raise AppError("INVALID_AMOUNT", f"Минимум {min_a:.0f} ₽")
+        if max_a > 0 and face > max_a:
+            raise AppError("INVALID_AMOUNT", f"Максимум {max_a:.0f} ₽")
+        price = apply_markup(face, product.markup_percent or 0)
+        payload["amount"] = f"{face:.2f}"
+        return price, payload
+
+    price = money(product.price)
+    if price <= 0:
+        raise AppError("INVALID_PRICE", "У товара не задана цена")
+    return price, payload
+
+
 def purchase(
     db: Session,
     *,
@@ -164,23 +211,9 @@ def purchase(
     product = db.get(DigitalProduct, product_id)
     if not product or not product.enabled:
         raise NotFoundError("Товар не найден")
-    price = money(product.price)
-    if price <= 0:
-        raise AppError("INVALID_PRICE", "У товара не задана цена")
+    price, payload = _collect_extra(product, extra)
 
-    fields = product.extra_fields or []
-    payload: dict = {}
-    for field in fields:
-        name = field.get("key")
-        if not name:
-            continue
-        value = str((extra or {}).get(name) or "").strip()
-        if field.get("required") and not value:
-            raise AppError("MISSING_FIELD", f"Укажите {field.get('label') or name}")
-        if value:
-            payload[name] = value[:64]
-
-    if product.delivery_type == "code" and stock_of(db, product.id) < 1:
+    if product.delivery_type == "code" and (product.amount_mode or "fixed") != "custom" and stock_of(db, product.id) < 1:
         raise AppError("OUT_OF_STOCK", "Кодов нет в наличии")
 
     bal = _lock_balance(db, user.id)
@@ -240,6 +273,11 @@ def purchase(
     db.refresh(order)
     if order.status == "completed" and order.result and order.result.get("code"):
         send_telegram(user, f"Покупка {product.name}\nЗаказ {oid}\nВаш код выдан в разделе «Мои покупки».")
+    elif order.status == "processing":
+        login = (payload or {}).get("steam_login") or (payload or {}).get("username") or ""
+        face = (payload or {}).get("amount") or product.face_value
+        send_telegram(user, f"Заказ {oid} принят.\n{product.name}" + (f"\nАккаунт: {login}" if login else "") + (f"\nСумма: {face}" if face else "") + "\nПриз/пополнение будет выдано после обработки.")
+        notify_owner(db, f"Digital заказ {oid}: {product.name}\nЦена {price:.2f} ₽\n{payload}")
     return order
 
 

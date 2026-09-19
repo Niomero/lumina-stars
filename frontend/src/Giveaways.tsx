@@ -40,9 +40,10 @@ export function GiveawaysPage() {
   const list = useQuery({ queryKey: ["giveaways"], queryFn: () => api("/giveaways") });
   return (
     <div className="grid">
-      <h1 className="h1 display">Розыгрыши</h1>
+      <h1 className="h1 display">Бонусы</h1>
+      <p className="muted lead">Розыгрыши призов: баланс или цифровой товар. Один аккаунт — одно участие.</p>
       {(list.data?.items || []).map((g: any) => (
-        <Link key={g.id} to={`/giveaways/${g.id}`} className="panel pad grid">
+        <Link key={g.id} to={`/bonuses/${g.id}`} className="panel pad grid">
           <div className="between">
             <b className="display">{g.title}</b>
             <span className={`badge ${g.status === "active" ? "ok" : ""}`}>{g.status === "active" ? "Активен" : "Завершён"}</span>
@@ -77,7 +78,7 @@ export function GiveawayPage() {
     <div className="grid product-page">
       <button className="back-link" type="button" onClick={() => nav(-1)}><ArrowLeft size={16} /> Назад</button>
       <div className="panel pad grid">
-        <div className="tiny">Розыгрыш</div>
+        <div className="tiny">Бонус</div>
         <h1 className="h1 display">{d.title}</h1>
         {d.description ? <p className="muted lead">{d.description}</p> : null}
         <div className="h2">Приз: {prizeLabel(d)}</div>

@@ -48,8 +48,12 @@ class DigitalIn(BaseModel):
     region: str = ""
     currency: str = "RUB"
     face_value: str = ""
-    price: Decimal
+    price: Decimal = Decimal("0")
     delivery_type: str = "code"
+    amount_mode: str = "fixed"
+    markup_percent: Decimal = Decimal("0")
+    min_amount: Decimal = Decimal("0")
+    max_amount: Decimal = Decimal("0")
     extra_fields: list | None = None
     enabled: bool = True
     sort_order: int = 0
@@ -64,6 +68,11 @@ class DigitalPatch(BaseModel):
     extra_fields: list | None = None
     sort_order: int | None = None
     face_value: str | None = None
+    amount_mode: str | None = None
+    markup_percent: Decimal | None = None
+    min_amount: Decimal | None = None
+    max_amount: Decimal | None = None
+    delivery_type: str | None = None
 
 
 class CodesIn(BaseModel):
@@ -121,6 +130,10 @@ def create_digital(body: DigitalIn, actor: User = Depends(require("digital.write
         face_value=body.face_value[:32],
         price=money(body.price),
         delivery_type=body.delivery_type if body.delivery_type in {"code", "manual"} else "code",
+        amount_mode=body.amount_mode if body.amount_mode in {"fixed", "custom"} else "fixed",
+        markup_percent=money(body.markup_percent),
+        min_amount=money(body.min_amount),
+        max_amount=money(body.max_amount),
         extra_fields=body.extra_fields,
         enabled=body.enabled,
         sort_order=body.sort_order,
@@ -138,8 +151,13 @@ def patch_digital(product_id: int, body: DigitalPatch, actor: User = Depends(req
     if not p:
         raise NotFoundError("Товар не найден")
     data = body.model_dump(exclude_unset=True)
-    if "price" in data and data["price"] is not None:
-        data["price"] = money(data["price"])
+    for key in ("price", "markup_percent", "min_amount", "max_amount"):
+        if key in data and data[key] is not None:
+            data[key] = money(data[key])
+    if data.get("amount_mode") and data["amount_mode"] not in {"fixed", "custom"}:
+        data["amount_mode"] = "fixed"
+    if data.get("delivery_type") and data["delivery_type"] not in {"code", "manual"}:
+        data.pop("delivery_type")
     for k, v in data.items():
         setattr(p, k, v)
     write_audit(db, "digital.update", actor.id, "digital_product", p.id)

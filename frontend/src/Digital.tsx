@@ -16,6 +16,9 @@ const CAT: Record<string, string> = {
   nintendo: "Nintendo",
   roblox: "Roblox",
   minecraft: "Minecraft",
+  fortnite: "Fortnite",
+  valorant: "Valorant",
+  spotify: "Spotify",
   other: "Другое",
 };
 
@@ -30,12 +33,18 @@ function digitalStatus(s: string) {
   return map[s] || s;
 }
 
-export function DigitalShop({ group }: { group: "topup" | "games" }) {
+function priceLabel(p: any) {
+  if (p.amount_mode === "custom") return `от ${formatRub(p.min_amount || 0)}`;
+  return formatRub(p.price);
+}
+
+export function DigitalShop({ group }: { group?: "topup" | "games" }) {
   const [q, setQ] = useState("");
   const [category, setCategory] = useState("");
+  const [grp, setGrp] = useState(group || "");
   const list = useQuery({
-    queryKey: ["digital", group],
-    queryFn: () => api(`/digital/catalog?group=${group}`),
+    queryKey: ["digital", grp || "all"],
+    queryFn: () => api(`/digital/catalog${grp ? `?group=${grp}` : ""}`),
   });
   const source = list.data?.items || [];
   const items = source.filter((p: any) => {
@@ -51,8 +60,17 @@ export function DigitalShop({ group }: { group: "topup" | "games" }) {
   ];
   return (
     <div className="grid">
-      <h1 className="h1 display">{group === "games" ? "Игры" : "Пополнения"}</h1>
-      <p className="muted lead">{group === "games" ? "Roblox, Minecraft и другие коды." : "Steam, Google Play, App Store, PlayStation — оплата с баланса, код после покупки."}</p>
+      <h1 className="h1 display">Digital</h1>
+      <p className="muted lead">Коды и пополнения: Steam по логину, Roblox, Minecraft, магазины. Оплата с баланса Lumina.</p>
+      {!group && (
+        <div className="chips">
+          {[["", "Все"], ["topup", "Пополнения"], ["games", "Игры"]].map(([id, label]) => (
+            <button key={id || "all"} type="button" className={grp === id ? "on" : ""} onClick={() => { setGrp(id); setCategory(""); }}>
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
       <FilterBar
         search={q}
         onSearch={setQ}
@@ -66,9 +84,14 @@ export function DigitalShop({ group }: { group: "topup" | "games" }) {
           <div className="icon-blob">{(CAT[p.category] || p.category).slice(0, 2)}</div>
           <div style={{ flex: 1 }}>
             <b>{p.name}</b>
-            <div className="muted">{p.region ? `${p.region} · ` : ""}{p.face_value} {p.currency}{p.in_stock ? "" : " · нет в наличии"}</div>
+            <div className="muted">
+              {CAT[p.category] || p.category}
+              {p.face_value ? ` · ${p.face_value} ${p.currency}` : ""}
+              {p.amount_mode === "custom" ? " · своя сумма" : ""}
+              {p.in_stock ? "" : " · нет в наличии"}
+            </div>
           </div>
-          <b className="num">{formatRub(p.price)}</b>
+          <b className="num">{priceLabel(p)}</b>
         </Link>
       ))}
       {!list.isLoading && !items.length && <div className="empty">Пока нет предложений в этой категории</div>}
@@ -99,10 +122,20 @@ export function DigitalProductPage({ me }: { me: { balance: string; username?: s
   });
   if (product.isLoading || !product.data) return <div className="skeleton tall" />;
   const p = product.data;
-  const after = Number(me.balance) - Number(p.price);
-  const fields = p.extra_fields || [];
+  const custom = p.amount_mode === "custom";
+  const face = Number(String(extra.amount || "").replace(",", "."));
+  const markup = Number(p.markup_percent || 0);
+  const minA = Number(p.min_amount || 0);
+  const maxA = Number(p.max_amount || 0);
+  const payable = custom
+    ? (Number.isFinite(face) && face > 0 ? Math.round(face * (1 + markup / 100) * 100) / 100 : 0)
+    : Number(p.price);
+  const after = Number(me.balance) - payable;
+  const fields = (p.extra_fields || []).filter((f: any) => f.key !== "amount");
   const missing = fields.some((f: any) => f.required && !(extra[f.key] || "").trim());
-  const username = extra.username;
+  const amountBad = custom && (!Number.isFinite(face) || face <= 0 || (minA > 0 && face < minA) || (maxA > 0 && face > maxA));
+  const login = extra.steam_login || extra.username;
+  const blocked = buy.isPending || !p.in_stock || missing || amountBad || after < 0 || (custom && !payable);
   return (
     <div className="grid product-page">
       <button className="back-link" type="button" onClick={() => nav(-1)}>
@@ -112,18 +145,29 @@ export function DigitalProductPage({ me }: { me: { balance: string; username?: s
         <div className="tiny">{CAT[p.category] || p.category}</div>
         <h1 className="h1 display">{p.name}</h1>
         <p className="muted lead">{p.description}</p>
-        <div className="between"><span className="muted">Номинал</span><b>{p.face_value} {p.currency}</b></div>
+        {!custom && p.face_value ? <div className="between"><span className="muted">Номинал</span><b>{p.face_value} {p.currency}</b></div> : null}
         {p.region ? <div className="between"><span className="muted">Регион</span><b>{p.region}</b></div> : null}
-        <div className="between"><span className="muted">Наличие</span><b>{p.in_stock ? `${p.stock} шт.` : "Нет"}</b></div>
-        <div className="h2 num">{formatRub(p.price)}</div>
+        {!custom ? <div className="between"><span className="muted">Наличие</span><b>{p.in_stock ? (p.delivery_type === "manual" ? "Под заказ" : `${p.stock} шт.`) : "Нет"}</b></div> : null}
+        {!custom ? <div className="h2 num">{formatRub(p.price)}</div> : <div className="muted">Комиссия {markup}%. Минимум {formatRub(minA)}{maxA ? ` · максимум ${formatRub(maxA)}` : ""}</div>}
       </div>
       {fields.map((f: any) => (
         <label key={f.key} className="tiny">{f.label}
           <input value={extra[f.key] || ""} onChange={(e) => setExtra({ ...extra, [f.key]: e.target.value })} placeholder={f.label} />
         </label>
       ))}
-      {username ? <div className="muted">Пополнение на аккаунт: {username}</div> : null}
+      {custom && (
+        <label className="tiny">Сумма пополнения, ₽
+          <input
+            inputMode="decimal"
+            value={extra.amount || ""}
+            onChange={(e) => setExtra({ ...extra, amount: e.target.value.replace(",", ".") })}
+            placeholder="Например 500"
+          />
+        </label>
+      )}
+      {login ? <div className="muted">Пополнение на аккаунт: {login}</div> : null}
       <div className="panel pad grid">
+        {custom && payable > 0 ? <div className="between"><span className="muted">К оплате</span><b className="h2 num">{formatRub(payable)}</b></div> : null}
         <div className="between"><span className="muted">Баланс</span><b>{formatRub(me.balance)}</b></div>
         <div className="between"><span className="muted">После оплаты</span><span className={after < 0 ? "err" : ""}>{formatRub(after)}</span></div>
       </div>
@@ -140,16 +184,16 @@ export function DigitalProductPage({ me }: { me: { balance: string; username?: s
       ) : buy.data?.status === "processing" ? (
         <div className="panel pad grid">
           <b>Заказ принят</b>
-          <p className="muted">Код появится в «Мои покупки» после выдачи. Деньги уже списаны, повторно не спишем.</p>
+          <p className="muted">Пополнение обработаем на указанный логин. Статус — в «Мои покупки». Деньги уже списаны.</p>
           <Link className="btn block" to="/purchases">Мои покупки</Link>
         </div>
       ) : (
         <button
           className="btn block"
-          disabled={buy.isPending || !p.in_stock || missing || after < 0}
+          disabled={blocked}
           onClick={() => { haptic("medium"); setConfirm(true); }}
         >
-          {!p.in_stock ? "Нет в наличии" : after < 0 ? "Недостаточно средств" : `Оплатить ${formatRub(p.price)}`}
+          {!p.in_stock ? "Нет в наличии" : amountBad ? "Укажите сумму" : after < 0 ? "Недостаточно средств" : `Оплатить ${formatRub(payable || p.price)}`}
         </button>
       )}
       {confirm && (
@@ -157,8 +201,9 @@ export function DigitalProductPage({ me }: { me: { balance: string; username?: s
           <div className="panel grid" onClick={(e) => e.stopPropagation()}>
             <h2 className="h2 display">Подтвердить покупку?</h2>
             <div>Товар: {p.name}</div>
-            {username ? <div>Аккаунт: {username}</div> : null}
-            <div>Цена: {formatRub(p.price)}</div>
+            {login ? <div>Аккаунт: {login}</div> : null}
+            {custom ? <div>Пополнение: {formatRub(face)}</div> : null}
+            <div>К оплате: {formatRub(payable)}</div>
             <div>Баланс после: {formatRub(after)}</div>
             <div className="row">
               <button className="btn ghost block" onClick={() => setConfirm(false)}>Отмена</button>
@@ -189,7 +234,7 @@ export function MyPurchases() {
         </Link>
       ))}
       {!list.isLoading && !(list.data?.items || []).length && (
-        <div className="empty">Покупок цифровых товаров пока нет<br /><Link to="/digital" className="btn" style={{ display: "inline-block", marginTop: 12 }}>К пополнениям</Link></div>
+        <div className="empty">Покупок цифровых товаров пока нет<br /><Link to="/digital" className="btn" style={{ display: "inline-block", marginTop: 12 }}>В Digital</Link></div>
       )}
     </div>
   );
@@ -210,7 +255,9 @@ export function PurchaseDetail() {
         <h1 className="h1 display">{o.product_name}</h1>
         <div className="muted">{digitalStatus(o.status)}</div>
         <b>{formatRub(o.price)}</b>
+        {o.extra?.steam_login ? <div className="muted">Steam логин: {o.extra.steam_login}</div> : null}
         {o.extra?.username ? <div className="muted">Получатель: {o.extra.username}</div> : null}
+        {o.extra?.amount ? <div className="muted">Сумма пополнения: {formatRub(o.extra.amount)}</div> : null}
         {o.code ? (
           <>
             <div className="tiny">Ваш код</div>
@@ -220,7 +267,7 @@ export function PurchaseDetail() {
             </button>
           </>
         ) : (
-          <p className="muted">Код появится после выдачи.</p>
+          <p className="muted">{o.status === "processing" ? "Заказ в обработке. Код или зачисление появятся после выдачи." : "Код появится после выдачи."}</p>
         )}
       </div>
     </div>

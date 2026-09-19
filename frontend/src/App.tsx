@@ -2,9 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, Navigate, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import {
-  Home as HomeIcon,
   Store,
-  Wallet,
   UserRound,
   Sparkles,
   Crown,
@@ -17,6 +15,7 @@ import {
   Hash,
   AtSign,
   ArrowLeft,
+  Gamepad2,
 } from "lucide-react";
 import { api, ApiError, clearToken, setToken } from "./api/client";
 import { formatRub, payStatusLabel, payStatusTone, statusLabel, statusTone } from "./lib/format";
@@ -77,7 +76,7 @@ async function prefetchShop(qc: QueryClient) {
     })),
     timed(qc.prefetchQuery({ queryKey: ["orders-home"], queryFn: () => api("/orders") })),
     timed(qc.prefetchQuery({ queryKey: ["rent-nft"], queryFn: () => api("/rent/nft/list") }), 5000),
-    timed(qc.prefetchQuery({ queryKey: ["digital", "topup"], queryFn: () => api("/digital/catalog?group=topup") }), 4000),
+    timed(qc.prefetchQuery({ queryKey: ["digital", "all"], queryFn: () => api("/digital/catalog") }), 4000),
     timed(qc.prefetchQuery({ queryKey: ["giveaways"], queryFn: () => api("/giveaways") }), 4000),
   ]);
 }
@@ -85,17 +84,16 @@ async function prefetchShop(qc: QueryClient) {
 function Shell({ me, children }: { me: Me; children: React.ReactNode }) {
   const loc = useLocation();
   const nav = [
-    { to: "/", icon: HomeIcon, label: "Главная" },
-    { to: "/catalog", icon: Store, label: "Каталог" },
-    { to: "/giveaways", icon: Gift, label: "Розыгрыши" },
-    { to: "/balance", icon: Wallet, label: "Баланс" },
+    { to: "/", icon: Store, label: "Товары" },
+    { to: "/digital", icon: Gamepad2, label: "Digital" },
+    { to: "/bonuses", icon: Gift, label: "Бонусы" },
     { to: "/profile", icon: UserRound, label: "Профиль" },
   ];
   const admin = loc.pathname.startsWith("/admin");
   const trust = loc.pathname.startsWith("/pay/");
   const asset = loc.pathname.startsWith("/asset/");
   const product = loc.pathname.startsWith("/product/");
-  const detailNav = /^\/(digital|giveaways|purchases)\/[^/]+/.test(loc.pathname);
+  const detailNav = /^\/(digital|giveaways|bonuses|purchases)\/[^/]+/.test(loc.pathname);
   if (trust) {
     return <div className="trust-host">{children}</div>;
   }
@@ -158,10 +156,14 @@ function Shell({ me, children }: { me: Me; children: React.ReactNode }) {
           {nav.map((n) => {
             const Icon = n.icon;
             const active = n.to === "/"
-              ? loc.pathname === "/"
-              : n.to === "/catalog"
-                ? ["/catalog", "/digital", "/games", "/rent", "/nft", "/product"].some((p) => loc.pathname.startsWith(p))
-                : loc.pathname.startsWith(n.to);
+              ? loc.pathname === "/" || ["/catalog", "/rent", "/nft", "/product", "/asset"].some((p) => loc.pathname.startsWith(p))
+              : n.to === "/digital"
+                ? ["/digital", "/games", "/purchases"].some((p) => loc.pathname.startsWith(p))
+                : n.to === "/bonuses"
+                  ? ["/bonuses", "/giveaways"].some((p) => loc.pathname.startsWith(p))
+                  : n.to === "/profile"
+                    ? ["/profile", "/balance", "/orders", "/transactions", "/referrals"].some((p) => loc.pathname.startsWith(p))
+                    : loc.pathname.startsWith(n.to);
             return (
               <Link key={n.to} to={n.to} className={active ? "active" : ""}>
                 <Icon />
@@ -209,11 +211,6 @@ function Catalog() {
   return (
     <div className="grid">
       <h1 className="h1 display">Каталог</h1>
-      <div className="row wrap">
-        <Link to="/digital" className="btn ghost sm">Пополнения</Link>
-        <Link to="/games" className="btn ghost sm">Игры</Link>
-        <Link to="/giveaways" className="btn ghost sm">Розыгрыши</Link>
-      </div>
       <FilterBar
         search={q}
         onSearch={setQ}
@@ -568,10 +565,9 @@ function Referrals() {
 
 function Profile({ me }: { me: Me }) {
   const cards = [
-    ["/balance", "Баланс", formatRub(me.balance)],
-    ["/purchases", "Мои покупки", "Коды"],
-    ["/giveaways", "Розыгрыши", "Призы"],
+    ["/purchases", "Мои покупки", "Коды и пополнения"],
     ["/orders", "Мои заказы", String(me.orders_count || 0)],
+    ["/bonuses", "Бонусы", "Розыгрыши"],
     ["/transactions", "Транзакции", "История"],
     ["/referrals", "Рефералы", me.referral_code],
   ];
@@ -582,6 +578,13 @@ function Profile({ me }: { me: Me }) {
         <div>
           <h2 className="h2">{me.first_name}</h2>
           <div className="muted">@{me.username || "user"} · {me.role}</div>
+        </div>
+      </div>
+      <div className="panel ledger">
+        <div className="tiny">Баланс</div>
+        <div className="between">
+          <div className="h1 display num">{formatRub(me.balance)}</div>
+          <Link to="/balance" className="btn ghost sm">Пополнить</Link>
         </div>
       </div>
       {cards.map(([to, t, s]) => (
@@ -739,12 +742,14 @@ export default function App() {
       <Routes>
         <Route path="/" element={<Home me={me.data} />} />
         <Route path="/catalog" element={<Catalog />} />
-        <Route path="/digital" element={<DigitalShop group="topup" />} />
+        <Route path="/digital" element={<DigitalShop />} />
         <Route path="/games" element={<DigitalShop group="games" />} />
         <Route path="/digital/:id" element={<DigitalProductPage me={me.data} />} />
         <Route path="/purchases" element={<MyPurchases />} />
         <Route path="/purchases/:id" element={<PurchaseDetail />} />
-        <Route path="/giveaways" element={<GiveawaysPage />} />
+        <Route path="/bonuses" element={<GiveawaysPage />} />
+        <Route path="/bonuses/:id" element={<GiveawayPage />} />
+        <Route path="/giveaways" element={<Navigate to="/bonuses" />} />
         <Route path="/giveaways/:id" element={<GiveawayPage />} />
         <Route path="/product/:id" element={<ProductPage me={me.data} />} />
         <Route path="/rent/nft" element={<RentNftPage mode="rent" />} />

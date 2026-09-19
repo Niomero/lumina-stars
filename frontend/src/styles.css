@@ -975,6 +975,10 @@ body.trust-body {
   background: color-mix(in oklab, var(--bg-elevated) 88%, #c9a46a 10%);
 }
 .row.wrap { flex-wrap: wrap; }
+.digital-cta {
+  min-height: 52px;
+  letter-spacing: 0.02em;
+}
 select {
   width: 100%;
   border-radius: var(--radius-md);
