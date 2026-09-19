@@ -310,3 +310,108 @@ class Sale(Base):
     note: Mapped[str] = mapped_column(String(255), default="")
     created_by: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class DigitalProduct(Base):
+    __tablename__ = "digital_products"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    slug: Mapped[str] = mapped_column(String(80), unique=True, index=True)
+    name: Mapped[str] = mapped_column(String(128))
+    description: Mapped[str] = mapped_column(Text, default="")
+    category: Mapped[str] = mapped_column(String(32), index=True)
+    group: Mapped[str] = mapped_column(String(24), default="topup", index=True)
+    provider: Mapped[str] = mapped_column(String(32), default="inventory")
+    image: Mapped[str] = mapped_column(String(512), default="")
+    region: Mapped[str] = mapped_column(String(16), default="")
+    currency: Mapped[str] = mapped_column(String(8), default="RUB")
+    face_value: Mapped[str] = mapped_column(String(32), default="")
+    price: Mapped[Decimal] = mapped_column(Money, default=Decimal("0.00"))
+    delivery_type: Mapped[str] = mapped_column(String(24), default="code")
+    extra_fields: Mapped[dict | None] = mapped_column(JSONType, nullable=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
+class DigitalCode(Base):
+    __tablename__ = "digital_codes"
+    __table_args__ = (UniqueConstraint("product_id", "code_hash", name="uq_digital_code_hash"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    product_id: Mapped[int] = mapped_column(ForeignKey("digital_products.id"), index=True)
+    code_enc: Mapped[str] = mapped_column(Text)
+    code_hash: Mapped[str] = mapped_column(String(64), index=True)
+    status: Mapped[str] = mapped_column(String(16), default="available", index=True)
+    order_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    reserved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    sold_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    product: Mapped["DigitalProduct"] = relationship()
+
+
+class DigitalOrder(Base):
+    __tablename__ = "digital_orders"
+    __table_args__ = (UniqueConstraint("user_id", "idempotency_key", name="uq_digital_order_idem"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    public_id: Mapped[str] = mapped_column(String(16), unique=True, index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    product_id: Mapped[int] = mapped_column(ForeignKey("digital_products.id"), index=True)
+    price: Mapped[Decimal] = mapped_column(Money)
+    status: Mapped[str] = mapped_column(String(24), default="pending", index=True)
+    extra: Mapped[dict | None] = mapped_column(JSONType, nullable=True)
+    result: Mapped[dict | None] = mapped_column(JSONType, nullable=True)
+    code_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    idempotency_key: Mapped[str] = mapped_column(String(80), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+    product: Mapped["DigitalProduct"] = relationship()
+
+
+class Giveaway(Base):
+    __tablename__ = "giveaways"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    title: Mapped[str] = mapped_column(String(128))
+    description: Mapped[str] = mapped_column(Text, default="")
+    image: Mapped[str] = mapped_column(String(512), default="")
+    reward_type: Mapped[str] = mapped_column(String(16), default="balance")
+    reward_product_id: Mapped[int | None] = mapped_column(ForeignKey("digital_products.id"), nullable=True)
+    reward_amount: Mapped[Decimal] = mapped_column(Money, default=Decimal("0.00"))
+    winner_count: Mapped[int] = mapped_column(Integer, default=1)
+    finish_type: Mapped[str] = mapped_column(String(16), default="time")
+    finish_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    max_participants: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    status: Mapped[str] = mapped_column(String(16), default="active", index=True)
+    created_by: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    product: Mapped["DigitalProduct | None"] = relationship()
+
+
+class GiveawayParticipant(Base):
+    __tablename__ = "giveaway_participants"
+    __table_args__ = (UniqueConstraint("giveaway_id", "user_id", name="uq_giveaway_user"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    giveaway_id: Mapped[int] = mapped_column(ForeignKey("giveaways.id"), index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    joined_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class GiveawayWinner(Base):
+    __tablename__ = "giveaway_winners"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    giveaway_id: Mapped[int] = mapped_column(ForeignKey("giveaways.id"), index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    reward_status: Mapped[str] = mapped_column(String(24), default="pending")
+    reward_transaction_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    digital_order_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    selected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    selection_method: Mapped[str] = mapped_column(String(32), default="secrets.SystemRandom")

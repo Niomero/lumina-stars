@@ -276,6 +276,21 @@ export function GalleryHome({ me }: { me: { first_name?: string; balance: string
           <span className="tiny">Коллекция</span>
           <span className="h2 display">Купить NFT</span>
         </Link>
+        <Link to="/digital" className="panel door alt">
+          <span className="idx">07</span>
+          <span className="tiny">Коды</span>
+          <span className="h2 display">Пополнения</span>
+        </Link>
+        <Link to="/games" className="panel door alt">
+          <span className="idx">08</span>
+          <span className="tiny">Roblox · Minecraft</span>
+          <span className="h2 display">Игры</span>
+        </Link>
+        <Link to="/giveaways" className="panel door alt">
+          <span className="idx">09</span>
+          <span className="tiny">Призы</span>
+          <span className="h2 display">Розыгрыши</span>
+        </Link>
       </div>
 
       <div className="between">

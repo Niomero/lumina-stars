@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.rbac import Role
-from app.models import Product, SystemSetting, User
+from app.models import DigitalProduct, Product, SystemSetting, User
 
 
 PRODUCTS = [
@@ -132,6 +132,20 @@ PRODUCTS = [
 ]
 
 
+DIGITAL = [
+    {"slug": "steam-500-ru", "name": "Steam 500 ₽", "description": "Пополнение кошелька Steam на 500 ₽. После оплаты вы получите код.", "category": "steam", "group": "topup", "region": "RU", "currency": "RUB", "face_value": "500", "price": Decimal("549.00"), "sort_order": 1},
+    {"slug": "steam-1000-ru", "name": "Steam 1000 ₽", "description": "Пополнение кошелька Steam на 1000 ₽.", "category": "steam", "group": "topup", "region": "RU", "currency": "RUB", "face_value": "1000", "price": Decimal("1089.00"), "sort_order": 2},
+    {"slug": "gplay-10-us", "name": "Google Play 10 USD", "description": "Gift card Google Play. Код придёт после оплаты.", "category": "google_play", "group": "topup", "region": "US", "currency": "USD", "face_value": "10", "price": Decimal("990.00"), "sort_order": 3},
+    {"slug": "gplay-25-us", "name": "Google Play 25 USD", "description": "Gift card Google Play 25 USD.", "category": "google_play", "group": "topup", "region": "US", "currency": "USD", "face_value": "25", "price": Decimal("2450.00"), "sort_order": 4},
+    {"slug": "appstore-10-us", "name": "App Store 10 USD", "description": "Код пополнения Apple / App Store.", "category": "app_store", "group": "topup", "region": "US", "currency": "USD", "face_value": "10", "price": Decimal("1020.00"), "sort_order": 5},
+    {"slug": "psn-10-us", "name": "PlayStation 10 USD", "description": "Карта пополнения PlayStation Store.", "category": "playstation", "group": "topup", "region": "US", "currency": "USD", "face_value": "10", "price": Decimal("1010.00"), "sort_order": 6},
+    {"slug": "xbox-10-us", "name": "Xbox 10 USD", "description": "Код Microsoft / Xbox.", "category": "xbox", "group": "topup", "region": "US", "currency": "USD", "face_value": "10", "price": Decimal("990.00"), "sort_order": 7},
+    {"slug": "nintendo-10-us", "name": "Nintendo eShop 10 USD", "description": "Код Nintendo eShop.", "category": "nintendo", "group": "topup", "region": "US", "currency": "USD", "face_value": "10", "price": Decimal("1010.00"), "sort_order": 8},
+    {"slug": "roblox-800", "name": "Roblox 800 Robux", "description": "Цифровой код Roblox. Укажите username перед оплатой.", "category": "roblox", "group": "games", "region": "GLOBAL", "currency": "USD", "face_value": "800", "price": Decimal("890.00"), "sort_order": 9, "extra_fields": [{"key": "username", "label": "Roblox Username", "required": True}]},
+    {"slug": "minecraft-20", "name": "Minecraft 20 EUR", "description": "Код пополнения / карты Minecraft.", "category": "minecraft", "group": "games", "region": "EU", "currency": "EUR", "face_value": "20", "price": Decimal("1890.00"), "sort_order": 10, "extra_fields": [{"key": "username", "label": "Minecraft username", "required": False}]},
+]
+
+
 def seed(db: Session) -> None:
     for item in PRODUCTS:
         existing = db.scalar(select(Product).where(Product.slug == item["slug"]))
@@ -140,6 +154,19 @@ def seed(db: Session) -> None:
                 existing.fallback_unit_price = item["fallback_unit_price"]
             continue
         db.add(Product(**item, enabled=True, provider="tgstars"))
+    for item in DIGITAL:
+        if db.scalar(select(DigitalProduct.id).where(DigitalProduct.slug == item["slug"])):
+            continue
+        payload = {k: v for k, v in item.items() if k != "extra_fields"}
+        db.add(
+            DigitalProduct(
+                **payload,
+                extra_fields=item.get("extra_fields"),
+                provider="inventory",
+                delivery_type="code",
+                enabled=True,
+            )
+        )
     if not db.get(SystemSetting, "seeded"):
         db.add(SystemSetting(key="seeded", value="1"))
     owner_id = int(get_settings().owner_telegram_id or 0)

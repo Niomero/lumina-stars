@@ -3,6 +3,8 @@ import { Link, Navigate, Route, Routes, useNavigate, useParams } from "react-rou
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError, getAdminUnlock, setAdminUnlock } from "../api/client";
 import { formatRub, payStatusLabel, payStatusTone, roleLabel, statusLabel, statusTone, txTypeLabel, when } from "../lib/format";
+import { DigitalAdmin } from "./DigitalAdmin";
+import { GiveawayAdmin } from "./GiveawayAdmin";
 
 type Me = { id: number; role: string; first_name?: string; is_owner?: boolean };
 
@@ -515,7 +517,7 @@ function TransactionsAdmin() {
     <div className="grid">
       <h1 className="h1 display">Транзакции</h1>
       <div className="chips">
-        {[["", "Все"], ["DEPOSIT", "Пополнения"], ["PURCHASE", "Покупки"], ["REFUND", "Возвраты"], ["ADMIN_ADJUSTMENT", "Корректировки"]].map(([k, l]) => (
+        {[["", "Все"], ["DEPOSIT", "Пополнения"], ["PURCHASE", "Покупки"], ["DIGITAL", "Digital"], ["GIVEAWAY", "Розыгрыши"], ["REFUND", "Возвраты"], ["ADMIN_ADJUSTMENT", "Корректировки"]].map(([k, l]) => (
           <button key={k || "all"} className={type === k ? "on" : ""} onClick={() => setType(k)}>{l}</button>
         ))}
       </div>
@@ -902,6 +904,8 @@ export function AdminApp({ me }: { me: Me }) {
       <Route path="orders" element={<OrdersAdmin me={me} />} />
       <Route path="orders/:id" element={<OrderDetail me={me} />} />
       <Route path="products" element={<ProductsAdmin me={me} />} />
+      <Route path="digital" element={<DigitalAdmin me={me} />} />
+      <Route path="giveaways" element={<GiveawayAdmin me={me} />} />
       <Route path="promos" element={<PromosAdmin me={me} />} />
       <Route path="pricing" element={<PricingAdmin me={me} />} />
       <Route path="mirrors" element={<MirrorsAdmin me={me} />} />

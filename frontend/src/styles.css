@@ -966,3 +966,33 @@ body.trust-body {
 }
 .admin-lock .panel { width: min(420px, 100%); }
 
+.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  letter-spacing: 0.03em;
+  word-break: break-all;
+}
+.door.alt {
+  background: color-mix(in oklab, var(--bg-elevated) 88%, #c9a46a 10%);
+}
+.row.wrap { flex-wrap: wrap; }
+select {
+  width: 100%;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: var(--bg-subtle);
+  color: var(--fg);
+  padding: 12px 14px;
+  font: inherit;
+}
+textarea {
+  width: 100%;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: var(--bg-subtle);
+  color: var(--fg);
+  padding: 12px 14px;
+  font: inherit;
+  resize: vertical;
+}
+
+

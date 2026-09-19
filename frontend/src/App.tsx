@@ -4,7 +4,6 @@ import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tansta
 import {
   Home as HomeIcon,
   Store,
-  Receipt,
   Wallet,
   UserRound,
   Sparkles,
@@ -28,6 +27,8 @@ import { AdminApp } from "./admin/Admin";
 import { Preloader, TelegramGate } from "./Boot";
 import { FilterBar } from "./Filters";
 import { FulfillmentOverlay, type FulfillStage } from "./Fulfillment";
+import { DigitalShop, DigitalProductPage, MyPurchases, PurchaseDetail } from "./Digital";
+import { GiveawaysPage, GiveawayPage } from "./Giveaways";
 
 type Me = {
   id: number;
@@ -76,6 +77,8 @@ async function prefetchShop(qc: QueryClient) {
     })),
     timed(qc.prefetchQuery({ queryKey: ["orders-home"], queryFn: () => api("/orders") })),
     timed(qc.prefetchQuery({ queryKey: ["rent-nft"], queryFn: () => api("/rent/nft/list") }), 5000),
+    timed(qc.prefetchQuery({ queryKey: ["digital", "topup"], queryFn: () => api("/digital/catalog?group=topup") }), 4000),
+    timed(qc.prefetchQuery({ queryKey: ["giveaways"], queryFn: () => api("/giveaways") }), 4000),
   ]);
 }
 
@@ -84,7 +87,7 @@ function Shell({ me, children }: { me: Me; children: React.ReactNode }) {
   const nav = [
     { to: "/", icon: HomeIcon, label: "Главная" },
     { to: "/catalog", icon: Store, label: "Каталог" },
-    { to: "/orders", icon: Receipt, label: "Заказы" },
+    { to: "/giveaways", icon: Gift, label: "Розыгрыши" },
     { to: "/balance", icon: Wallet, label: "Баланс" },
     { to: "/profile", icon: UserRound, label: "Профиль" },
   ];
@@ -92,6 +95,7 @@ function Shell({ me, children }: { me: Me; children: React.ReactNode }) {
   const trust = loc.pathname.startsWith("/pay/");
   const asset = loc.pathname.startsWith("/asset/");
   const product = loc.pathname.startsWith("/product/");
+  const detailNav = /^\/(digital|giveaways|purchases)\/[^/]+/.test(loc.pathname);
   if (trust) {
     return <div className="trust-host">{children}</div>;
   }
@@ -109,6 +113,8 @@ function Shell({ me, children }: { me: Me; children: React.ReactNode }) {
               ["/admin/orders", "Заказы"],
               ["/admin/transactions", "Транзакции"],
               ["/admin/products", "Товары"],
+              ["/admin/digital", "Digital"],
+              ["/admin/giveaways", "Розыгрыши"],
               ["/admin/promos", "Промокоды"],
               ["/admin/pricing", "Цены и акции"],
               ["/admin/mirrors", "Зеркала"],
@@ -131,6 +137,8 @@ function Shell({ me, children }: { me: Me; children: React.ReactNode }) {
                 ["/admin/users", "Люди"],
                 ["/admin/promos", "Промо"],
                 ["/admin/pricing", "Цены"],
+                ["/admin/digital", "Коды"],
+                ["/admin/giveaways", "Розыгрыши"],
                 ["/admin/orders", "Заказы"],
               ].map(([to, label]) => {
                 const active = to === "/admin" ? loc.pathname === "/admin" : loc.pathname.startsWith(to);
@@ -145,11 +153,15 @@ function Shell({ me, children }: { me: Me; children: React.ReactNode }) {
       ) : (
         children
       )}
-      {!admin && !asset && !product && (
+      {!admin && !asset && !product && !detailNav && (
         <nav className="nav">
           {nav.map((n) => {
             const Icon = n.icon;
-            const active = n.to === "/" ? loc.pathname === "/" : loc.pathname.startsWith(n.to);
+            const active = n.to === "/"
+              ? loc.pathname === "/"
+              : n.to === "/catalog"
+                ? ["/catalog", "/digital", "/games", "/rent", "/nft", "/product"].some((p) => loc.pathname.startsWith(p))
+                : loc.pathname.startsWith(n.to);
             return (
               <Link key={n.to} to={n.to} className={active ? "active" : ""}>
                 <Icon />
@@ -197,6 +209,11 @@ function Catalog() {
   return (
     <div className="grid">
       <h1 className="h1 display">Каталог</h1>
+      <div className="row wrap">
+        <Link to="/digital" className="btn ghost sm">Пополнения</Link>
+        <Link to="/games" className="btn ghost sm">Игры</Link>
+        <Link to="/giveaways" className="btn ghost sm">Розыгрыши</Link>
+      </div>
       <FilterBar
         search={q}
         onSearch={setQ}
@@ -552,6 +569,8 @@ function Referrals() {
 function Profile({ me }: { me: Me }) {
   const cards = [
     ["/balance", "Баланс", formatRub(me.balance)],
+    ["/purchases", "Мои покупки", "Коды"],
+    ["/giveaways", "Розыгрыши", "Призы"],
     ["/orders", "Мои заказы", String(me.orders_count || 0)],
     ["/transactions", "Транзакции", "История"],
     ["/referrals", "Рефералы", me.referral_code],
@@ -720,6 +739,13 @@ export default function App() {
       <Routes>
         <Route path="/" element={<Home me={me.data} />} />
         <Route path="/catalog" element={<Catalog />} />
+        <Route path="/digital" element={<DigitalShop group="topup" />} />
+        <Route path="/games" element={<DigitalShop group="games" />} />
+        <Route path="/digital/:id" element={<DigitalProductPage me={me.data} />} />
+        <Route path="/purchases" element={<MyPurchases />} />
+        <Route path="/purchases/:id" element={<PurchaseDetail />} />
+        <Route path="/giveaways" element={<GiveawaysPage />} />
+        <Route path="/giveaways/:id" element={<GiveawayPage />} />
         <Route path="/product/:id" element={<ProductPage me={me.data} />} />
         <Route path="/rent/nft" element={<RentNftPage mode="rent" />} />
         <Route path="/nft" element={<RentNftPage mode="buy" />} />

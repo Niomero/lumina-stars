@@ -69,6 +69,9 @@ def on_startup():
         seed(db)
     finally:
         db.close()
+    from app.workers.scheduler import start_background
+
+    start_background()
     log.info("Lumina started demo_mode=%s env=%s", settings.demo_mode, settings.app_env)
 
 

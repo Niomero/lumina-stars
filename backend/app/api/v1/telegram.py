@@ -50,7 +50,7 @@ def handle_bot_update(db: Session, body: dict) -> None:
     token = settings.telegram_bot_token
     webapp = (settings.telegram_webapp_url or "").rstrip("/")
     if webapp and "v=" not in webapp:
-        webapp = f"{webapp}?v=c8bce14"
+        webapp = f"{webapp}?v=digital1"
 
     def send(payload: dict):
         if not token:
