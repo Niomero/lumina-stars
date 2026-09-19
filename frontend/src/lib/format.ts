@@ -59,6 +59,7 @@ export function txTypeLabel(type: string) {
     BONUS: "Бонус",
     REFERRAL_REWARD: "Реферал",
     ADMIN_ADJUSTMENT: "Корректировка",
+    PROMO: "Промокод",
   };
   return map[type] || type;
 }

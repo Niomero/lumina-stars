@@ -55,6 +55,7 @@ def checkout(
     idempotency_key: str,
     tgstars: TgStarsService | None = None,
     nft_address: str | None = None,
+    promo_code: str | None = None,
 ) -> Order:
     settings = get_settings()
     tgstars = tgstars or TgStarsService()
@@ -96,6 +97,13 @@ def checkout(
     if rent_kind and quote.get("available") is False:
         raise AppError("ASSET_UNAVAILABLE", "Этот лот сейчас недоступен")
     total = money(quote["total"])
+    profit = money(quote["profit"])
+
+    from app.services.promos import apply_checkout, consume
+
+    total, discount, promo = apply_checkout(db, user, promo_code, product, total)
+    if discount > 0:
+        profit = money(profit - discount)
 
     bal = _lock_balance(db, user.id)
     if money(bal.amount) < total:
@@ -117,14 +125,23 @@ def checkout(
         provider_cost=quote["provider_cost"],
         markup_amount=quote["markup_amount"],
         commission_amount=quote["commission_amount"],
-        profit=quote["profit"],
+        profit=profit,
         currency="RUB",
         status="PENDING",
         recipient=dest,
-        payload={"quote_source": quote["source"], "kind": product.kind, "asset": dest if rent_kind else None},
+        payload={
+            "quote_source": quote["source"],
+            "kind": product.kind,
+            "asset": dest if rent_kind else None,
+            "promo": promo.code if promo else None,
+            "discount": str(discount) if discount else None,
+        },
     )
     db.add(order)
     db.flush()
+
+    if promo:
+        consume(db, promo, user, amount=discount if discount else money(0), order_id=order.id)
 
     db.add(
         Transaction(
@@ -133,8 +150,8 @@ def checkout(
             amount=money(-total),
             balance_before=before,
             balance_after=after,
-            description=f"Покупка {product.name} × {quote['quantity']}",
-            payload={"order_id": order.id, "public_id": order.public_id},
+            description=f"Покупка {product.name} × {quote['quantity']}" + (f" · {promo.code}" if promo else ""),
+            payload={"order_id": order.id, "public_id": order.public_id, "promo": promo.code if promo else None},
         )
     )
 

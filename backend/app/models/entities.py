@@ -261,3 +261,37 @@ class SystemSetting(Base):
 
     key: Mapped[str] = mapped_column(String(64), primary_key=True)
     value: Mapped[str] = mapped_column(Text, default="")
+
+
+class PromoCode(Base):
+    __tablename__ = "promo_codes"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    code: Mapped[str] = mapped_column(String(32), unique=True, index=True)
+    kind: Mapped[str] = mapped_column(String(16), index=True)
+    amount_type: Mapped[str] = mapped_column(String(16), default="fixed")
+    amount: Mapped[Decimal] = mapped_column(Money, default=Decimal("0.00"))
+    product_id: Mapped[int | None] = mapped_column(ForeignKey("products.id"), nullable=True)
+    max_uses: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    per_user: Mapped[int] = mapped_column(Integer, default=1)
+    min_order: Mapped[Decimal] = mapped_column(Money, default=Decimal("0.00"))
+    uses_count: Mapped[int] = mapped_column(Integer, default=0)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    starts_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    note: Mapped[str] = mapped_column(String(255), default="")
+    created_by: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    product: Mapped["Product | None"] = relationship()
+
+
+class PromoRedemption(Base):
+    __tablename__ = "promo_redemptions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    promo_id: Mapped[int] = mapped_column(ForeignKey("promo_codes.id"), index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    order_id: Mapped[int | None] = mapped_column(ForeignKey("orders.id"), nullable=True)
+    amount: Mapped[Decimal] = mapped_column(Money, default=Decimal("0.00"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)

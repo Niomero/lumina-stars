@@ -24,6 +24,8 @@ def catalog(
     q: str | None = None,
     category: str | None = None,
     sort: str = "popular",
+    price_min: float | None = None,
+    price_max: float | None = None,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -36,6 +38,10 @@ def catalog(
         item = product_public(product, unit_price=quote["unit_price"], total=quote["total"])
         item["quantity"] = quote["quantity"]
         items.append(item)
+    if price_min is not None:
+        items = [i for i in items if float(i.get("preview_total") or 0) >= price_min]
+    if price_max is not None:
+        items = [i for i in items if float(i.get("preview_total") or 0) <= price_max]
     if sort == "price_asc":
         items.sort(key=lambda x: float(x.get("unit_price") or 0))
     elif sort == "price_desc":

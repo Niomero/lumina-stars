@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     telegram_bot_token: str = ""
     telegram_webapp_url: str = ""
     telegram_webhook_secret: str = "lumina-hook"
+    telegram_bot_username: str = ""
 
     tgstars_api_url: str = "https://tgstars.tg/api/v1/client"
     tgstars_api_key: str = ""

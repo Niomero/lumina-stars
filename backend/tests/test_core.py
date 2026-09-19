@@ -41,6 +41,15 @@ def test_health(client):
     assert res.json()["data"]["ok"] is True
 
 
+def test_public_boot(client):
+    res = client.get("/api/v1/public/boot")
+    assert res.status_code == 200
+    data = res.json()["data"]
+    assert data["app_name"]
+    assert "demo_login_enabled" in data
+    assert "bot_username" in data
+
+
 def test_demo_auth_and_balance(client):
     headers = auth_header(client)
     me = client.get("/api/v1/me", headers=headers).json()["data"]

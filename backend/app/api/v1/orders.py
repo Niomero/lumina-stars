@@ -19,6 +19,7 @@ class CreateOrderIn(BaseModel):
     recipient: str = ""
     nft_address: str | None = None
     idempotency_key: str = Field(min_length=8, max_length=80)
+    promo_code: str | None = None
 
 
 @router.post("")
@@ -31,6 +32,7 @@ def create_order(body: CreateOrderIn, user: User = Depends(get_current_user), db
         recipient=body.recipient,
         idempotency_key=body.idempotency_key,
         nft_address=body.nft_address,
+        promo_code=body.promo_code,
     )
     return {
         "success": True,

@@ -12,9 +12,41 @@
       rel="stylesheet"
     />
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+      html, body, #root { min-height: 100%; background: #0b0a09; color: #f3efe6; margin: 0; }
+      .boot-splash {
+        min-height: 100dvh;
+        display: grid;
+        place-items: center;
+        font-family: Outfit, system-ui, sans-serif;
+        text-align: center;
+      }
+      .boot-splash .mark {
+        width: 64px; height: 64px; border-radius: 22px; margin: 0 auto 14px;
+        border: 1px solid rgba(243,239,230,.12);
+        display: grid; place-items: center;
+        font-family: Newsreader, Georgia, serif; font-size: 28px; font-weight: 600;
+      }
+      .boot-splash b {
+        font-family: Newsreader, Georgia, serif;
+        font-size: 28px;
+        font-weight: 500;
+        letter-spacing: -0.03em;
+        display: block;
+      }
+      .boot-splash span { color: #7a766c; font-size: 13px; margin-top: 10px; display: block; }
+    </style>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <div class="boot-splash">
+        <div>
+          <div class="mark">L</div>
+          <b>Lumina</b>
+          <span>Загружаем витрину</span>
+        </div>
+      </div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

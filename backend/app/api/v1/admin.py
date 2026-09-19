@@ -20,12 +20,14 @@ from app.models import (
     Order,
     Payment,
     Product,
+    PromoCode,
     Referral,
     Transaction,
     User,
 )
 from app.services.audit import write_audit
 from app.services.orders import _lock_balance, refund_order
+from app.services.promos import generate_code, normalize_code, promo_public, validate_payload
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -737,4 +739,98 @@ def _trust_get(db: Session, payment_id: str) -> Payment:
     if not pay:
         raise NotFoundError("Платёж не найден")
     return pay
+
+
+class PromoIn(BaseModel):
+    code: str | None = None
+    kind: str
+    amount_type: str = "fixed"
+    amount: Decimal
+    product_id: int | None = None
+    max_uses: int | None = Field(default=None, ge=1)
+    per_user: int = Field(default=1, ge=1, le=100)
+    min_order: Decimal = Decimal("0")
+    expires_at: datetime | None = None
+    starts_at: datetime | None = None
+    note: str = ""
+    enabled: bool = True
+
+
+class PromoPatch(BaseModel):
+    enabled: bool | None = None
+    max_uses: int | None = None
+    per_user: int | None = Field(default=None, ge=1, le=100)
+    expires_at: datetime | None = None
+    note: str | None = None
+    amount: Decimal | None = None
+    amount_type: str | None = None
+    min_order: Decimal | None = None
+
+
+@router.get("/promos")
+def list_promos(actor: User = Depends(require("promos.read")), db: Session = Depends(get_db)):
+    items = list(db.scalars(select(PromoCode).options(selectinload(PromoCode.product)).order_by(PromoCode.id.desc())))
+    return {"success": True, "data": {"items": [promo_public(p) for p in items]}}
+
+
+@router.post("/promos")
+def create_promo(body: PromoIn, actor: User = Depends(require("promos.write")), db: Session = Depends(get_db)):
+    validate_payload(kind=body.kind, amount_type=body.amount_type, amount=body.amount, product_id=body.product_id)
+    code = normalize_code(body.code or generate_code())
+    if len(code) < 3:
+        raise AppError("INVALID_PROMO", "Код слишком короткий")
+    exists = db.scalar(select(PromoCode).where(PromoCode.code == code))
+    if exists:
+        raise AppError("PROMO_EXISTS", "Такой промокод уже есть")
+    if body.product_id and not db.get(Product, body.product_id):
+        raise NotFoundError("Товар не найден")
+    promo = PromoCode(
+        code=code,
+        kind=body.kind,
+        amount_type=body.amount_type,
+        amount=money(body.amount),
+        product_id=body.product_id if body.kind == "product" else None,
+        max_uses=body.max_uses,
+        per_user=body.per_user,
+        min_order=money(body.min_order),
+        expires_at=body.expires_at,
+        starts_at=body.starts_at,
+        note=(body.note or "")[:255],
+        enabled=body.enabled,
+        created_by=actor.id,
+    )
+    db.add(promo)
+    write_audit(db, "promo.create", actor.id, "promo", code, {"kind": body.kind, "amount": str(body.amount)})
+    db.commit()
+    db.refresh(promo)
+    return {"success": True, "data": promo_public(promo)}
+
+
+@router.patch("/promos/{promo_id}")
+def patch_promo(promo_id: int, body: PromoPatch, actor: User = Depends(require("promos.write")), db: Session = Depends(get_db)):
+    promo = db.get(PromoCode, promo_id)
+    if not promo:
+        raise NotFoundError("Промокод не найден")
+    data = body.model_dump(exclude_unset=True)
+    if "amount" in data and data["amount"] is not None:
+        data["amount"] = money(data["amount"])
+    if "min_order" in data and data["min_order"] is not None:
+        data["min_order"] = money(data["min_order"])
+    for field, value in data.items():
+        setattr(promo, field, value)
+    write_audit(db, "promo.update", actor.id, "promo", promo.code)
+    db.commit()
+    db.refresh(promo)
+    return {"success": True, "data": promo_public(promo)}
+
+
+@router.delete("/promos/{promo_id}")
+def delete_promo(promo_id: int, actor: User = Depends(require("promos.write")), db: Session = Depends(get_db)):
+    promo = db.get(PromoCode, promo_id)
+    if not promo:
+        raise NotFoundError("Промокод не найден")
+    promo.enabled = False
+    write_audit(db, "promo.disable", actor.id, "promo", promo.code)
+    db.commit()
+    return {"success": True, "data": {"id": promo.id, "enabled": False}}
 

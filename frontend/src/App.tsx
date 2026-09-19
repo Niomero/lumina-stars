@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, Navigate, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import {
   Home as HomeIcon,
   Store,
@@ -17,13 +17,17 @@ import {
   Gift,
   Hash,
   AtSign,
+  ArrowLeft,
 } from "lucide-react";
-import { api, ApiError, clearToken, getToken, setToken } from "./api/client";
+import { api, ApiError, clearToken, setToken } from "./api/client";
 import { formatRub, payStatusLabel, payStatusTone, statusLabel, statusTone } from "./lib/format";
-import { bootTelegram, haptic } from "./lib/telegram";
+import { bootTelegram, canPreviewDemo, haptic, isTelegramWebApp, prefersReducedMotion, sleep, waitForTelegram } from "./lib/telegram";
 import { AssetPage, GalleryHome, GiftArt, RentListPage, RentNftPage } from "./Market";
 import { TrustPayPage } from "./TrustPay";
 import { AdminApp } from "./admin/Admin";
+import { Preloader, TelegramGate } from "./Boot";
+import { FilterBar } from "./Filters";
+import { FulfillmentOverlay, type FulfillStage } from "./Fulfillment";
 
 type Me = {
   id: number;
@@ -39,6 +43,13 @@ type Me = {
   is_owner?: boolean;
 };
 
+type BootInfo = {
+  app_name?: string;
+  demo_login_enabled?: boolean;
+  bot_username?: string | null;
+  app_env?: string;
+};
+
 const isStaff = (role?: string) => ["MANAGER", "ADMIN", "SUPERADMIN", "MIRROR_OWNER"].includes(role || "");
 
 function useMe(enabled: boolean) {
@@ -47,6 +58,25 @@ function useMe(enabled: boolean) {
     enabled,
     queryFn: () => api<Me>("/me"),
   });
+}
+
+async function timed<T>(promise: Promise<T>, ms = 7000): Promise<T | null> {
+  return Promise.race([
+    promise,
+    new Promise<null>((resolve) => setTimeout(() => resolve(null), ms)),
+  ]);
+}
+
+async function prefetchShop(qc: QueryClient) {
+  await Promise.allSettled([
+    timed(qc.prefetchQuery({ queryKey: ["me"], queryFn: () => api<Me>("/me") })),
+    timed(qc.prefetchQuery({
+      queryKey: ["catalog", "", "all", "popular"],
+      queryFn: () => api("/catalog?q=&category=all&sort=popular"),
+    })),
+    timed(qc.prefetchQuery({ queryKey: ["orders-home"], queryFn: () => api("/orders") })),
+    timed(qc.prefetchQuery({ queryKey: ["rent-nft"], queryFn: () => api("/rent/nft/list") }), 5000),
+  ]);
 }
 
 function Shell({ me, children }: { me: Me; children: React.ReactNode }) {
@@ -61,6 +91,7 @@ function Shell({ me, children }: { me: Me; children: React.ReactNode }) {
   const admin = loc.pathname.startsWith("/admin");
   const trust = loc.pathname.startsWith("/pay/");
   const asset = loc.pathname.startsWith("/asset/");
+  const product = loc.pathname.startsWith("/product/");
   if (trust) {
     return <div className="trust-host">{children}</div>;
   }
@@ -78,6 +109,7 @@ function Shell({ me, children }: { me: Me; children: React.ReactNode }) {
               ["/admin/orders", "Заказы"],
               ["/admin/transactions", "Транзакции"],
               ["/admin/products", "Товары"],
+              ["/admin/promos", "Промокоды"],
               ["/admin/mirrors", "Зеркала"],
               ["/admin/analytics", "Аналитика"],
               ...(me.role === "ADMIN" || me.role === "SUPERADMIN" ? [["/admin/audit", "Журнал"]] : []),
@@ -96,8 +128,8 @@ function Shell({ me, children }: { me: Me; children: React.ReactNode }) {
                 ["/admin", "Дашборд"],
                 ["/admin/trust-pay", "Платежи"],
                 ["/admin/users", "Люди"],
+                ["/admin/promos", "Промо"],
                 ["/admin/orders", "Заказы"],
-                ["/admin/transactions", "Движения"],
               ].map(([to, label]) => {
                 const active = to === "/admin" ? loc.pathname === "/admin" : loc.pathname.startsWith(to);
                 return (
@@ -111,7 +143,7 @@ function Shell({ me, children }: { me: Me; children: React.ReactNode }) {
       ) : (
         children
       )}
-      {!admin && !asset && (
+      {!admin && !asset && !product && (
         <nav className="nav">
           {nav.map((n) => {
             const Icon = n.icon;
@@ -148,24 +180,40 @@ function Catalog() {
   const [q, setQ] = useState("");
   const [category, setCategory] = useState(initial);
   const [sort, setSort] = useState("popular");
-  const [sheet, setSheet] = useState(false);
+  const [priceMin, setPriceMin] = useState("");
+  const [priceMax, setPriceMax] = useState("");
   useEffect(() => { setCategory(initial); }, [initial]);
   const { data, isLoading, error, refetch } = useQuery({
-    queryKey: ["catalog", q, category, sort],
-    queryFn: () => api(`/catalog?q=${encodeURIComponent(q)}&category=${category}&sort=${sort}`),
+    queryKey: ["catalog", q, category, sort, priceMin, priceMax],
+    queryFn: () => {
+      const p = new URLSearchParams({ q, category, sort });
+      if (priceMin) p.set("price_min", priceMin);
+      if (priceMax) p.set("price_max", priceMax);
+      return api(`/catalog?${p}`);
+    },
   });
   return (
     <div className="grid">
       <h1 className="h1 display">Каталог</h1>
-      <input placeholder="Что вы ищете?" value={q} onChange={(e) => setQ(e.target.value)} />
-      <div className="chips">
-        {["all", "stars", "premium", "nft", "username", "number"].map((c) => (
-          <button key={c} className={category === c ? "on" : ""} onClick={() => setCategory(c)}>
-            {CAT_LABEL[c]}
-          </button>
-        ))}
-        <button className="" onClick={() => setSheet(true)}>Фильтры</button>
-      </div>
+      <FilterBar
+        search={q}
+        onSearch={setQ}
+        categories={["all", "stars", "premium", "nft", "username", "number"].map((id) => ({ id, label: CAT_LABEL[id] }))}
+        category={category}
+        onCategory={setCategory}
+        sorts={[
+          { id: "popular", label: "Популярные" },
+          { id: "new", label: "Новые" },
+          { id: "price_asc", label: "Дешевле" },
+          { id: "price_desc", label: "Дороже" },
+        ]}
+        sort={sort}
+        onSort={setSort}
+        priceMin={priceMin}
+        priceMax={priceMax}
+        onPriceMin={setPriceMin}
+        onPriceMax={setPriceMax}
+      />
       {isLoading && <><div className="skeleton" /><div className="skeleton" /></>}
       {error && <div className="empty err">Не удалось загрузить данные<br /><button className="btn ghost" onClick={() => refetch()}>Повторить</button></div>}
       {(data?.items || []).map((p: any) => {
@@ -182,21 +230,7 @@ function Catalog() {
           </Link>
         );
       })}
-      {sheet && (
-        <div className="sheet open" onClick={() => setSheet(false)}>
-          <div className="panel grid" onClick={(e) => e.stopPropagation()}>
-            <h2 className="h2">Сортировка</h2>
-            {[
-              ["popular", "По популярности"],
-              ["new", "Новые"],
-              ["price_asc", "Цена ↑"],
-              ["price_desc", "Цена ↓"],
-            ].map(([k, l]) => (
-              <button key={k} className={`btn ${sort === k ? "" : "ghost"}`} onClick={() => { setSort(k); setSheet(false); }}>{l}</button>
-            ))}
-          </div>
-        </div>
-      )}
+      {!isLoading && !(data?.items || []).length && <div className="empty">Ничего не нашлось. Смягчите фильтры.</div>}
     </div>
   );
 }
@@ -208,7 +242,9 @@ function ProductPage({ me }: { me: Me }) {
   const [qty, setQty] = useState(100);
   const [recipient, setRecipient] = useState(me.username || "");
   const [confirm, setConfirm] = useState(false);
-  const [done, setDone] = useState<any>(null);
+  const [promo, setPromo] = useState("");
+  const [deal, setDeal] = useState<any>(null);
+  const [ff, setFf] = useState<{ stage: FulfillStage; order?: any; error?: string } | null>(null);
   const { data, isLoading } = useQuery({
     queryKey: ["product", id, qty],
     queryFn: () => api(`/products/${id}?quantity=${qty}`),
@@ -216,6 +252,11 @@ function ProductPage({ me }: { me: Me }) {
   useEffect(() => {
     if (data?.kind === "premium") setQty(data.min_quantity);
   }, [data?.kind, data?.min_quantity]);
+  useEffect(() => { setDeal(null); }, [qty, id]);
+  const applyPromo = useMutation({
+    mutationFn: () => api(`/promos/preview?code=${encodeURIComponent(promo)}&product_id=${id}&quantity=${qty}`),
+    onSuccess: (d) => setDeal(d),
+  });
   const buy = useMutation({
     mutationFn: () =>
       api("/orders", {
@@ -225,35 +266,56 @@ function ProductPage({ me }: { me: Me }) {
           quantity: qty,
           recipient,
           idempotency_key: crypto.randomUUID(),
+          promo_code: deal?.kind && deal.kind !== "balance" ? promo : undefined,
         }),
       }),
-    onSuccess: (order) => {
-      haptic("success");
-      setConfirm(false);
-      setDone(order);
-      qc.invalidateQueries({ queryKey: ["me"] });
-    },
   });
+  const runBuy = async () => {
+    haptic("medium");
+    setConfirm(false);
+    setFf({ stage: "pay" });
+    const quiet = prefersReducedMotion();
+    const t0 = Date.now();
+    try {
+      const order = await buy.mutateAsync();
+      const payWait = quiet ? 120 : Math.max(0, 900 - (Date.now() - t0));
+      await sleep(payWait);
+      setFf({ stage: "issue", order });
+      await sleep(quiet ? 180 : 1600);
+      haptic("success");
+      setFf({ stage: "done", order });
+      qc.invalidateQueries({ queryKey: ["me"] });
+      qc.invalidateQueries({ queryKey: ["orders"] });
+      qc.invalidateQueries({ queryKey: ["orders-home"] });
+    } catch (e: any) {
+      haptic("error");
+      setFf({ stage: "error", error: e.message || "Не удалось оплатить" });
+    }
+  };
   if (isLoading || !data) return <div className="skeleton tall" />;
   const presets = data.presets || [50, 100, 250, 500, 1000];
-  const after = Number(me.balance) - Number(data.total);
+  const payable = deal?.kind && deal.kind !== "balance" && deal.new_total != null ? deal.new_total : data.total;
+  const after = Number(me.balance) - Number(payable);
   const motif = data.kind === "premium" ? "diamond" : "star";
+  const unitHint = data.kind === "stars" ? " / звезда" : data.kind === "premium" ? "" : " / мес.";
   return (
-    <div className="grid">
-      <button className="btn ghost" onClick={() => nav(-1)}>Назад</button>
+    <div className="grid product-page">
+      <button className="back-link" type="button" onClick={() => nav(-1)}>
+        <ArrowLeft size={16} /> Назад
+      </button>
       <div className="panel asset-hero">
-        <GiftArt tone={data.kind === "premium" ? 42 : 210} motif={motif} large />
+        <GiftArt tone={data.kind === "premium" ? 42 : 210} motif={motif} emblem />
         <h1 className="h1 display">{data.name}</h1>
         <p className="muted lead">{data.description}</p>
         <div className="tiny">Текущая цена</div>
-        <div className="h2 num">{formatRub(data.unit_price)} {data.kind === "stars" ? " / звезда" : " / мес."}</div>
+        <div className="h2 num">{formatRub(data.unit_price)}{unitHint}</div>
       </div>
       {data.kind === "stars" && (
         <>
           <div className="qty">
-            <button onClick={() => setQty(Math.max(data.min_quantity, qty - data.step))}><Minus size={16} /></button>
+            <button type="button" onClick={() => setQty(Math.max(data.min_quantity, qty - data.step))}><Minus size={16} /></button>
             <b className="display num qty-val">{qty}</b>
-            <button onClick={() => setQty(Math.min(data.max_quantity, qty + data.step))}><Plus size={16} /></button>
+            <button type="button" onClick={() => setQty(Math.min(data.max_quantity, qty + data.step))}><Plus size={16} /></button>
           </div>
           <div className="presets">
             {presets.map((p: number) => (
@@ -263,41 +325,53 @@ function ProductPage({ me }: { me: Me }) {
         </>
       )}
       <input placeholder="Username получателя без @" value={recipient} onChange={(e) => setRecipient(e.target.value.replace("@", ""))} />
+      <div className="promo-row">
+        <input placeholder="Промокод" value={promo} onChange={(e) => { setPromo(e.target.value); setDeal(null); }} />
+        <button className="btn ghost" type="button" disabled={!promo.trim() || applyPromo.isPending} onClick={() => applyPromo.mutate()}>
+          Применить
+        </button>
+      </div>
+      {applyPromo.error && <div className="err">{(applyPromo.error as ApiError).message}</div>}
+      {deal?.kind === "balance" && <div className="muted">{deal.message}. Откройте Баланс, чтобы получить начисление.</div>}
+      {deal?.kind && deal.kind !== "balance" && <div className="muted ok-line">{deal.message}</div>}
       <div className="panel pad">
         <div className="between"><span className="muted">Итог</span><b>{data.quantity} × {formatRub(data.unit_price)}</b></div>
-        <div className="between"><span className="muted">К оплате</span><b className="h2 num">{formatRub(data.total)}</b></div>
+        {deal?.discount && Number(deal.discount) > 0 && (
+          <div className="between"><span className="muted">Скидка</span><b>−{formatRub(deal.discount)}</b></div>
+        )}
+        <div className="between"><span className="muted">К оплате</span><b className="h2 num">{formatRub(payable)}</b></div>
         <div className="between"><span className="muted">Баланс</span><span className="num">{formatRub(me.balance)}</span></div>
       </div>
-      {buy.error && <div className="err">{(buy.error as ApiError).message}</div>}
-      <button className="btn block" onClick={() => { haptic("medium"); setConfirm(true); }}>Купить за {formatRub(data.total)}</button>
+      {buy.error && !ff && <div className="err">{(buy.error as ApiError).message}</div>}
+      <div className="asset-cta">
+        <button className="btn block" onClick={() => { haptic("medium"); setConfirm(true); }}>Купить за {formatRub(payable)}</button>
+      </div>
       {confirm && (
         <div className="sheet open" onClick={() => setConfirm(false)}>
           <div className="panel grid" onClick={(e) => e.stopPropagation()}>
             <h2 className="h2 display">Подтвердить заказ?</h2>
             <div>Товар: {data.name}</div>
             <div>Количество: {data.quantity}</div>
-            <div>Цена: {formatRub(data.total)}</div>
+            <div>Цена: {formatRub(payable)}</div>
             <div>Баланс после: {formatRub(after)}</div>
             <div className="row">
               <button className="btn ghost block" onClick={() => setConfirm(false)}>Отмена</button>
-              <button className="btn block" disabled={buy.isPending} onClick={() => buy.mutate()}>Подтвердить</button>
+              <button className="btn block" disabled={buy.isPending} onClick={runBuy}>Подтвердить</button>
             </div>
           </div>
         </div>
       )}
-      {done && (
-        <div className="sheet open">
-          <div className="panel grid success-sheet">
-            <div className="success-mark"><Check size={40} /></div>
-            <h2 className="h2 display">Заказ одобрен</h2>
-            <div className="muted">Заказ передан</div>
-            <div className="ticket-line">#{done.public_id}</div>
-            <div>Товар: {data.name}</div>
-            <div>Количество: {done.quantity}</div>
-            <div className="h2">{formatRub(done.total_price)}</div>
-            <Link className="btn block" to={`/orders/${done.public_id}`}>Посмотреть заказ</Link>
-          </div>
-        </div>
+      {ff && (
+        <FulfillmentOverlay
+          stage={ff.stage}
+          order={ff.order}
+          productName={data.name}
+          quantity={data.quantity}
+          recipient={recipient}
+          kind={data.kind}
+          error={ff.error}
+          onClose={() => setFf(null)}
+        />
       )}
     </div>
   );
@@ -340,6 +414,7 @@ function OrderPage() {
         <div>{data.product?.name}</div>
         <div className="muted">Количество: {data.quantity}</div>
         <div className="h2 num">Итог: {formatRub(data.total_price)}</div>
+        {data.promo ? <div className="muted">Промокод {data.promo}{data.discount ? ` · скидка ${formatRub(data.discount)}` : ""}</div> : null}
         <span className={`badge ${statusTone(data.status)}`}>{statusLabel(data.status)}</span>
       </div>
       <div className="panel pad">
@@ -356,7 +431,9 @@ function OrderPage() {
 
 function Balance({ me }: { me: Me }) {
   const nav = useNavigate();
+  const qc = useQueryClient();
   const [amount, setAmount] = useState("500");
+  const [code, setCode] = useState("");
   const { data } = useQuery({ queryKey: ["tx"], queryFn: () => api("/transactions") });
   const pays = useQuery({ queryKey: ["tp-list"], queryFn: () => api("/trust-pay/payments") });
   const create = useMutation({
@@ -366,6 +443,15 @@ function Balance({ me }: { me: Me }) {
       nav(`/pay/${p.public_id}`);
     },
   });
+  const redeem = useMutation({
+    mutationFn: () => api("/promos/redeem", { method: "POST", body: JSON.stringify({ code }) }),
+    onSuccess: () => {
+      haptic("success");
+      setCode("");
+      qc.invalidateQueries({ queryKey: ["me"] });
+      qc.invalidateQueries({ queryKey: ["tx"] });
+    },
+  });
   const parsed = Number(amount);
   const canPay = Number.isFinite(parsed) && parsed >= 30;
   return (
@@ -373,6 +459,15 @@ function Balance({ me }: { me: Me }) {
       <div className="panel ledger" style={{ textAlign: "center" }}>
         <div className="tiny">Баланс</div>
         <div className="h1 display num" style={{ fontSize: 40 }}>{formatRub(me.balance)}</div>
+      </div>
+      <div className="panel pad grid">
+        <div className="tiny">Промокод на баланс</div>
+        <div className="promo-row">
+          <input placeholder="Код" value={code} onChange={(e) => setCode(e.target.value)} />
+          <button className="btn ghost" disabled={!code.trim() || redeem.isPending} onClick={() => redeem.mutate()}>Получить</button>
+        </div>
+        {redeem.error && <div className="err">{(redeem.error as ApiError).message}</div>}
+        {redeem.data && <div className="muted">Начислено {formatRub(redeem.data.credited)}</div>}
       </div>
       <div className="panel pad grid">
         <div className="tiny">Пополнение</div>
@@ -480,49 +575,104 @@ function Transactions() {
 
 
 export default function App() {
-  const [ready, setReady] = useState(false);
-  const [authed, setAuthed] = useState(!!getToken());
+  const qc = useQueryClient();
+  const [phase, setPhase] = useState<"boot" | "gate" | "app">("boot");
+  const [bootLabel, setBootLabel] = useState("Подключаемся");
+  const [bootInfo, setBootInfo] = useState<BootInfo | null>(null);
+  const [authed, setAuthed] = useState(false);
   const [error, setError] = useState("");
   const me = useMe(authed);
 
   useEffect(() => {
-    const tg = bootTelegram();
+    let cancelled = false;
     const run = async () => {
+      const started = Date.now();
       try {
-        if (tg?.initData) {
+        setBootLabel("Подключаемся");
+        bootTelegram();
+        const [info] = await Promise.all([
+          api<BootInfo>("/public/boot").catch(() => ({ app_name: "Lumina", demo_login_enabled: false, bot_username: null })),
+          waitForTelegram(650),
+        ]);
+        if (cancelled) return;
+        setBootInfo(info);
+
+        const tg = bootTelegram();
+        if (isTelegramWebApp() && tg?.initData) {
+          setBootLabel("Проверяем вход");
           const data = await api("/auth/telegram", { method: "POST", body: JSON.stringify({ init_data: tg.initData }) });
           setToken(data.token);
           setAuthed(true);
-        } else if (!getToken()) {
-          const data = await api("/auth/demo", { method: "POST", body: JSON.stringify({ name: "Lumina" }) });
-          setToken(data.token);
-          setAuthed(true);
-        } else {
-          setAuthed(true);
+          setBootLabel("Загружаем витрину");
+          await prefetchShop(qc);
+          const wait = Math.max(0, 1100 - (Date.now() - started));
+          if (wait) await sleep(wait);
+          if (!cancelled) setPhase("app");
+          return;
+        }
+
+        const leftover = Math.max(0, 1000 - (Date.now() - started));
+        if (leftover) await sleep(leftover);
+        if (!cancelled) {
+          clearToken();
+          setPhase("gate");
         }
       } catch (e: any) {
-        setError(e.message || "Не удалось войти");
-        clearToken();
-      } finally {
-        setReady(true);
+        if (cancelled) return;
+        setError(e.message || "Не удалось загрузить");
+        setPhase("gate");
       }
     };
     run();
-  }, []);
+    return () => {
+      cancelled = true;
+    };
+  }, [qc]);
 
-  if (!ready || (authed && me.isLoading)) {
-    return <div className="app"><div className="display h1">Lumina</div><div className="skeleton" /></div>;
+  const enterDemo = async () => {
+    setError("");
+    setPhase("boot");
+    setBootLabel("Загружаем витрину");
+    try {
+      const data = await api("/auth/demo", { method: "POST", body: JSON.stringify({ name: "Lumina" }) });
+      setToken(data.token);
+      setAuthed(true);
+      await prefetchShop(qc);
+      await sleep(prefersReducedMotion() ? 80 : 500);
+      setPhase("app");
+    } catch (e: any) {
+      setError(e.message || "Не удалось войти");
+      setPhase("gate");
+    }
+  };
+
+  if (phase === "boot" || (phase === "app" && authed && me.isLoading && !me.data)) {
+    return <Preloader label={bootLabel} />;
   }
-  if (error && !me.data) {
+  if (phase === "gate" || (error && !me.data && phase !== "app")) {
     return (
-      <div className="app empty">
-        <h1 className="display">Lumina</h1>
-        <p className="err">{error}</p>
-        <button className="btn" onClick={() => location.reload()}><RefreshCw size={16} /> Повторить</button>
+      <TelegramGate
+        info={bootInfo}
+        allowDemo={canPreviewDemo(Boolean(bootInfo?.demo_login_enabled), bootInfo?.app_env)}
+        error={error}
+        onDemo={enterDemo}
+      />
+    );
+  }
+  if (!me.data) {
+    return <Preloader label="Загружаем витрину" />;
+  }
+  if (me.isError) {
+    return (
+      <div className="boot-screen">
+        <div className="boot-inner">
+          <h1 className="display">Lumina</h1>
+          <p className="err">Не удалось загрузить профиль</p>
+          <button className="btn" onClick={() => location.reload()}><RefreshCw size={16} /> Повторить</button>
+        </div>
       </div>
     );
   }
-  if (!me.data) return <div className="app"><div className="skeleton" /></div>;
 
   return (
     <Shell me={me.data}>

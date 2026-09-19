@@ -5,6 +5,7 @@ import { ArrowLeft, Check, Minus, Plus } from "lucide-react";
 import { api, ApiError } from "./api/client";
 import { formatRub, statusLabel, statusTone } from "./lib/format";
 import { haptic } from "./lib/telegram";
+import { FilterBar } from "./Filters";
 
 type Asset = {
   address: string;
@@ -158,26 +159,29 @@ export function GiftArt({
   motif,
   name,
   large,
+  emblem,
   image,
 }: {
   tone?: number;
   motif?: string;
   name?: string;
   large?: boolean;
+  emblem?: boolean;
   image?: string | null;
 }) {
   const [broken, setBroken] = useState(false);
   const key = motif || "gift";
+  const size = emblem ? "emblem" : large ? "lg" : "";
   if (image && !broken) {
     return (
-      <div className={`gift-art photo ${large ? "lg" : ""}`} aria-hidden>
+      <div className={`gift-art photo ${size}`} aria-hidden>
         <img src={image} alt="" referrerPolicy="no-referrer" onError={() => setBroken(true)} />
         {name ? <span className="sr-only">{name}</span> : null}
       </div>
     );
   }
   return (
-    <div className={`gift-art ${large ? "lg" : ""}`} style={{ ["--tone" as string]: String(tone ?? 210) }} aria-hidden>
+    <div className={`gift-art ${size}`} style={{ ["--tone" as string]: String(tone ?? 210) }} aria-hidden>
       <div className="gift-plate">{GLYPHS[key] || GLYPHS.gift}</div>
       {name ? <span className="sr-only">{name}</span> : null}
     </div>
@@ -313,6 +317,7 @@ export function RentNftPage({ mode }: { mode: "rent" | "buy" }) {
   const colsPath = mode === "buy" ? "/nft/buy/collections" : "/rent/nft/collections";
   const [col, setCol] = useState<string>("");
   const [sort, setSort] = useState("");
+  const [q, setQ] = useState("");
   const cols = useQuery({ queryKey: [colsPath], queryFn: () => api(colsPath) });
   const collections = cols.data?.items || [];
   useEffect(() => {
@@ -336,19 +341,24 @@ export function RentNftPage({ mode }: { mode: "rent" | "buy" }) {
       <p className="muted lead">
         {mode === "buy" ? "Gift NFT с живой витрины Fragment." : "Аренда Gift NFT. Каталог с tgstars.tg."}
       </p>
-      <div className="chips">
-        {collections.map((c: any) => (
-          <button key={c.address} className={col === c.address ? "on" : ""} onClick={() => setCol(c.address)}>{c.name}</button>
-        ))}
-      </div>
-      <div className="chips">
-        <button className={!sort ? "on" : ""} onClick={() => setSort("")}>Новые</button>
-        <button className={sort === "asc" ? "on" : ""} onClick={() => setSort("asc")}>Цена ↑</button>
-        <button className={sort === "desc" ? "on" : ""} onClick={() => setSort("desc")}>Цена ↓</button>
-      </div>
+      <FilterBar
+        search={q}
+        onSearch={setQ}
+        searchPlaceholder={mode === "buy" ? "Найти подарок" : "Найти NFT"}
+        categories={[{ id: "", label: "Все коллекции" }, ...collections.map((c: any) => ({ id: c.address, label: c.name }))]}
+        category={col}
+        onCategory={setCol}
+        sorts={[
+          { id: "", label: "Новые" },
+          { id: "asc", label: "Дешевле" },
+          { id: "desc", label: "Дороже" },
+        ]}
+        sort={sort}
+        onSort={setSort}
+      />
       {list.isLoading && <div className="gift-grid">{[1, 2, 3, 4].map((i) => <div key={i} className="skeleton tall" />)}</div>}
       <div className="gift-grid">
-        {(list.data?.items || []).map((g: Asset) => (
+        {(list.data?.items || []).filter((g: Asset) => !q || (g.name || "").toLowerCase().includes(q.toLowerCase())).map((g: Asset) => (
           <Link key={g.address} to={`/asset/${kind}/${g.address}`} className="panel gift">
             <GiftArt tone={g.tone} motif={g.motif} name={g.name} image={g.image} />
             <b>{prettyName(kind, g.name, g.address)}</b>
@@ -367,17 +377,25 @@ export function RentNftPage({ mode }: { mode: "rent" | "buy" }) {
 
 export function RentListPage({ kind }: { kind: "username_rent" | "number_rent" }) {
   const [q, setQ] = useState("");
-  const [len, setLen] = useState<number | "">("");
+  const [len, setLen] = useState<string>("");
+  const [numbers, setNumbers] = useState("");
+  const [underscore, setUnderscore] = useState("");
   const path = kind === "username_rent" ? "/rent/username/list" : "/rent/number/list";
   const list = useQuery({
-    queryKey: [path, q, len],
+    queryKey: [path, q, len, numbers, underscore],
     queryFn: () => {
       const p = new URLSearchParams();
-      if (kind === "username_rent" && q) p.set("q", q);
-      if (kind === "username_rent" && len) p.append("length_filter", String(len));
+      if (q) p.set("q", q);
+      if (kind === "username_rent" && len) p.append("length_filter", len);
+      if (kind === "username_rent" && numbers) p.set("numbers_filter", numbers);
+      if (kind === "username_rent" && underscore) p.set("underscore_filter", underscore);
       const s = p.toString();
       return api(`${path}${s ? `?${s}` : ""}`);
     },
+  });
+  const items = (list.data?.items || []).filter((g: Asset) => {
+    if (kind !== "number_rent" || !q) return true;
+    return `${g.name || ""} ${g.digits || ""}`.toLowerCase().includes(q.toLowerCase());
   });
   return (
     <div className="grid">
@@ -385,19 +403,44 @@ export function RentListPage({ kind }: { kind: "username_rent" | "number_rent" }
       <p className="muted lead">
         {kind === "username_rent" ? "Коллекционные Telegram-имена с витрины tgstars.tg." : "Анонимные Telegram-номера +888 с витрины tgstars.tg."}
       </p>
-      {kind === "username_rent" && (
-        <>
-          <input placeholder="Поиск имени" value={q} onChange={(e) => setQ(e.target.value)} />
-          <div className="chips">
-            <button className={len === "" ? "on" : ""} onClick={() => setLen("")}>Все</button>
-            {[4, 5, 6, 7].map((n) => (
-              <button key={n} className={len === n ? "on" : ""} onClick={() => setLen(n)}>{n} букв</button>
-            ))}
-          </div>
-        </>
-      )}
+      <FilterBar
+        search={q}
+        onSearch={setQ}
+        searchPlaceholder={kind === "username_rent" ? "Поиск имени" : "Поиск номера"}
+        categories={kind === "username_rent" ? [
+          { id: "", label: "Любая длина" },
+          { id: "4", label: "4" },
+          { id: "5", label: "5" },
+          { id: "6", label: "6" },
+          { id: "7", label: "7+" },
+        ] : undefined}
+        category={kind === "username_rent" ? len : undefined}
+        onCategory={kind === "username_rent" ? setLen : undefined}
+        extras={kind === "username_rent" ? (
+          <>
+            <div className="filter-row quiet">
+              {[
+                ["", "Цифры: все"],
+                ["with", "С цифрами"],
+                ["without", "Без цифр"],
+              ].map(([id, label]) => (
+                <button key={id || "n-all"} type="button" className={numbers === id ? "on" : ""} onClick={() => setNumbers(id)}>{label}</button>
+              ))}
+            </div>
+            <div className="filter-row quiet">
+              {[
+                ["", "Подчёркивание: все"],
+                ["with", "С _"],
+                ["without", "Без _"],
+              ].map(([id, label]) => (
+                <button key={id || "u-all"} type="button" className={underscore === id ? "on" : ""} onClick={() => setUnderscore(id)}>{label}</button>
+              ))}
+            </div>
+          </>
+        ) : undefined}
+      />
       {list.isLoading && <div className="skeleton" />}
-      {(list.data?.items || []).map((g: Asset) => (
+      {items.map((g: Asset) => (
         <Link key={g.address} to={`/asset/${kind}/${g.address}`} className="panel handle-row between">
           <div>
             <b className="display handle">{prettyName(kind, g.name, g.address)}</b>
@@ -406,8 +449,8 @@ export function RentListPage({ kind }: { kind: "username_rent" | "number_rent" }
           <span className="badge">Аренда</span>
         </Link>
       ))}
-      {!list.isLoading && !(list.data?.items || []).length && (
-        <div className="empty">{list.data?.error || "Список пуст"}</div>
+      {!list.isLoading && !items.length && (
+        <div className="empty">{list.data?.error || "Ничего не нашлось"}</div>
       )}
     </div>
   );

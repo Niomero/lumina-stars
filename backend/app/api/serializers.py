@@ -76,6 +76,8 @@ def order_public(order: Order) -> dict:
         "created_at": order.created_at.isoformat() if order.created_at else None,
         "updated_at": order.updated_at.isoformat() if order.updated_at else None,
         "message": (order.payload or {}).get("message") if order.status == "APPROVED" else None,
+        "promo": (order.payload or {}).get("promo"),
+        "discount": (order.payload or {}).get("discount"),
     }
     if user is not None:
         data["user"] = {

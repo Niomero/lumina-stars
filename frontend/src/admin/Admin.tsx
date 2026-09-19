@@ -610,6 +610,119 @@ function SettingsAdmin() {
   );
 }
 
+function PromosAdmin({ me }: { me: Me }) {
+  const qc = useQueryClient();
+  const write = canWrite(me.role);
+  const promos = useQuery({ queryKey: ["adm-promos"], queryFn: () => api("/admin/promos") });
+  const products = useQuery({ queryKey: ["adm-products"], queryFn: () => api("/admin/products") });
+  const [form, setForm] = useState({
+    code: "",
+    kind: "discount",
+    amount_type: "percent",
+    amount: "10",
+    product_id: "",
+    max_uses: "",
+    per_user: "1",
+    min_order: "",
+    expires_at: "",
+    note: "",
+  });
+  const create = useMutation({
+    mutationFn: () =>
+      api("/admin/promos", {
+        method: "POST",
+        body: JSON.stringify({
+          code: form.code || undefined,
+          kind: form.kind,
+          amount_type: form.kind === "balance" ? "fixed" : form.amount_type,
+          amount: form.amount,
+          product_id: form.kind === "product" && form.product_id ? Number(form.product_id) : undefined,
+          max_uses: form.max_uses ? Number(form.max_uses) : undefined,
+          per_user: Number(form.per_user || 1),
+          min_order: form.min_order || "0",
+          expires_at: form.expires_at ? new Date(form.expires_at).toISOString() : undefined,
+          note: form.note,
+        }),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["adm-promos"] });
+      setForm({ ...form, code: "", note: "" });
+    },
+  });
+  const patch = useMutation({
+    mutationFn: ({ id, body }: { id: number; body: object }) =>
+      api(`/admin/promos/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["adm-promos"] }),
+  });
+  const kindLabel: Record<string, string> = { balance: "Баланс", discount: "Скидка", product: "Товар" };
+  return (
+    <div className="grid">
+      <h1 className="h1 display">Промокоды</h1>
+      {write && (
+        <div className="panel pad grid">
+          <div className="tiny">Новый код</div>
+          <div className="chips">
+            {[["balance", "На баланс"], ["discount", "Скидка"], ["product", "На товар"]].map(([k, l]) => (
+              <button key={k} className={form.kind === k ? "on" : ""} onClick={() => setForm({ ...form, kind: k, amount_type: k === "balance" ? "fixed" : form.amount_type })}>{l}</button>
+            ))}
+          </div>
+          <input placeholder="Код (пусто — сгенерируем)" value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} />
+          {form.kind !== "balance" && (
+            <div className="chips">
+              <button className={form.amount_type === "percent" ? "on" : ""} onClick={() => setForm({ ...form, amount_type: "percent" })}>Проценты</button>
+              <button className={form.amount_type === "fixed" ? "on" : ""} onClick={() => setForm({ ...form, amount_type: "fixed" })}>Сумма ₽</button>
+            </div>
+          )}
+          <input inputMode="decimal" placeholder={form.amount_type === "percent" ? "Процент, например 15" : "Сумма ₽"} value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} />
+          {form.kind === "product" && (
+            <select value={form.product_id} onChange={(e) => setForm({ ...form, product_id: e.target.value })}>
+              <option value="">Товар</option>
+              {(products.data?.items || []).map((p: any) => (
+                <option key={p.id} value={p.id}>{p.name}</option>
+              ))}
+            </select>
+          )}
+          <div className="filter-price">
+            <label>Лимит использований<input inputMode="numeric" placeholder="без лимита" value={form.max_uses} onChange={(e) => setForm({ ...form, max_uses: e.target.value })} /></label>
+            <label>На человека<input inputMode="numeric" value={form.per_user} onChange={(e) => setForm({ ...form, per_user: e.target.value })} /></label>
+          </div>
+          {form.kind !== "balance" && (
+            <input inputMode="decimal" placeholder="Мин. сумма заказа ₽" value={form.min_order} onChange={(e) => setForm({ ...form, min_order: e.target.value })} />
+          )}
+          <label className="tiny">Срок до
+            <input type="datetime-local" value={form.expires_at} onChange={(e) => setForm({ ...form, expires_at: e.target.value })} />
+          </label>
+          <input placeholder="Заметка" value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} />
+          <Err e={create.error} />
+          <button className="btn block" disabled={create.isPending} onClick={() => create.mutate()}>Создать промокод</button>
+        </div>
+      )}
+      {(promos.data?.items || []).map((p: any) => (
+        <div key={p.id} className="panel pad grid">
+          <div className="between">
+            <div>
+              <b className="mono">{p.code}</b>
+              <div className="muted">{kindLabel[p.kind] || p.kind} · {p.amount_type === "percent" ? `${Number(p.amount)}%` : formatRub(p.amount)}{p.product_name ? ` · ${p.product_name}` : ""}</div>
+            </div>
+            <span className={`badge ${p.enabled ? "ok" : "bad"}`}>{p.enabled ? "Активен" : "Выкл"}</span>
+          </div>
+          <div className="muted">Использований {p.uses_count}{p.max_uses ? ` / ${p.max_uses}` : ""} · на человека {p.per_user}{p.expires_at ? ` · до ${when(p.expires_at)}` : ""}</div>
+          {p.note ? <div className="muted">{p.note}</div> : null}
+          {write && (
+            <div className="row">
+              <button className="btn ghost sm" onClick={() => navigator.clipboard.writeText(p.code)}>Копировать</button>
+              <button className="btn ghost sm" disabled={patch.isPending} onClick={() => patch.mutate({ id: p.id, body: { enabled: !p.enabled } })}>
+                {p.enabled ? "Отключить" : "Включить"}
+              </button>
+            </div>
+          )}
+        </div>
+      ))}
+      {!(promos.data?.items || []).length && <div className="empty">Промокодов пока нет</div>}
+    </div>
+  );
+}
+
 export function AdminApp({ me }: { me: Me }) {
   return (
     <Routes>
@@ -621,6 +734,7 @@ export function AdminApp({ me }: { me: Me }) {
       <Route path="orders" element={<OrdersAdmin me={me} />} />
       <Route path="orders/:id" element={<OrderDetail me={me} />} />
       <Route path="products" element={<ProductsAdmin me={me} />} />
+      <Route path="promos" element={<PromosAdmin me={me} />} />
       <Route path="mirrors" element={<MirrorsAdmin me={me} />} />
       <Route path="transactions" element={<TransactionsAdmin />} />
       <Route path="analytics" element={<AnalyticsAdmin />} />
