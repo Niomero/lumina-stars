@@ -505,9 +505,9 @@ function Balance({ me }: { me: Me }) {
       {(pays.data?.items || []).map((p: any) => (
         <Link key={p.public_id} to={`/pay/${p.public_id}`} className="between panel pad">
           <div>
-            <b>Пополнение · {p.public_id}</b>
-            <div className="muted">{formatRub(p.amount)} + комиссия {formatRub(p.fee)} · перевод {formatRub(p.total)}</div>
-            <div className="muted">{p.created_at ? new Date(p.created_at).toLocaleString("ru") : ""}</div>
+            <b>{p.status === "paid" ? `+${formatRub(p.amount)}` : formatRub(p.amount)}</b>
+            <div className="muted">Trust Pay · {p.public_id}</div>
+            <div className="muted">Комиссия {formatRub(p.fee)} · перевод {formatRub(p.total)} · {p.created_at ? new Date(p.created_at).toLocaleString("ru") : ""}</div>
           </div>
           <span className={`badge ${payStatusTone(p.status)}`}>{payStatusLabel(p.status)}</span>
         </Link>
@@ -614,12 +614,17 @@ export default function App() {
         if (cancelled) return;
         setBootInfo(info);
 
+        const onPay = window.location.pathname.startsWith("/pay/");
         const tg = bootTelegram();
         if (isTelegramWebApp() && tg?.initData) {
           setBootLabel("Проверяем вход");
           const data = await api("/auth/telegram", { method: "POST", body: JSON.stringify({ init_data: tg.initData }) });
           setToken(data.token);
           setAuthed(true);
+          if (onPay) {
+            if (!cancelled) setPhase("app");
+            return;
+          }
           setBootLabel("Загружаем витрину");
           await prefetchShop(qc);
           const wait = Math.max(0, 1100 - (Date.now() - started));
@@ -631,11 +636,19 @@ export default function App() {
         const leftover = Math.max(0, 1000 - (Date.now() - started));
         if (leftover) await sleep(leftover);
         if (!cancelled) {
+          if (onPay) {
+            setPhase("app");
+            return;
+          }
           clearToken();
           setPhase("gate");
         }
       } catch (e: any) {
         if (cancelled) return;
+        if (window.location.pathname.startsWith("/pay/")) {
+          setPhase("app");
+          return;
+        }
         setError(e.message || "Не удалось загрузить");
         setPhase("gate");
       }
@@ -662,6 +675,17 @@ export default function App() {
       setPhase("gate");
     }
   };
+
+  const onPay = typeof window !== "undefined" && window.location.pathname.startsWith("/pay/");
+
+  if (onPay) {
+    if (phase === "boot") return <Preloader label="Загружаем оплату" />;
+    return (
+      <Routes>
+        <Route path="/pay/:id" element={<TrustPayPage />} />
+      </Routes>
+    );
+  }
 
   if (phase === "boot" || (phase === "app" && authed && me.isLoading && !me.data)) {
     return <Preloader label={bootLabel} />;

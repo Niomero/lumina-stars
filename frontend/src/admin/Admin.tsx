@@ -308,7 +308,7 @@ function TrustPayAdmin({ me }: { me: Me }) {
             <span className={`badge ${payStatusTone(p.status)}`}>{payStatusLabel(p.status)}</span>
           </div>
           <Link to={`/admin/users/${p.user_id}`} className="muted">
-            {p.first_name || "user"} @{p.username || "—"} · tg {p.telegram_id}
+            user_id {p.user_id} · {p.first_name || "user"} @{p.username || "—"} · Telegram {p.telegram_id}
           </Link>
           <div>
             <div className="between"><span className="muted">К зачислению</span><b className="num">{formatRub(p.amount)}</b></div>

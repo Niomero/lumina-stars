@@ -107,17 +107,40 @@ def test_bot_topup_webhook_accepted(client):
     assert res2.status_code == 200
 
 
-def test_topup_reply_uses_url_not_webapp():
+def test_topup_reply_opens_trust_pay_webapp(monkeypatch):
+    from app.core.config import get_settings
+    from app.services.trust_pay import pay_url, topup_reply
+
+    monkeypatch.setenv("TELEGRAM_WEBAPP_URL", "https://lumina-stars.onrender.com/?v=c8bce14")
+    get_settings.cache_clear()
+
     class P:
         public_id = "TP-TEST"
         amount = Decimal("500.00")
         fee = Decimal("15.00")
         total = Decimal("515.00")
 
+    assert pay_url("TP-TEST") == "https://lumina-stars.onrender.com/pay/TP-TEST"
     text, markup = topup_reply(P())
-    assert "5599 0021 4495 5509" in text
-    assert "https://yoomoney.ru/to/4100119621450464/515" in text
+    assert text.startswith("TRUST PAY")
+    assert "Сумма пополнения: 500.00 ₽" in text
+    assert "К оплате: 515.00 ₽" in text
     assert markup
-    urls = [btn["url"] for row in markup["inline_keyboard"] for btn in row]
-    assert all("web_app" not in btn for row in markup["inline_keyboard"] for btn in row)
-    assert any(u.endswith("/515") for u in urls)
+    pay_btn = markup["inline_keyboard"][0][0]
+    assert pay_btn["text"] == "Перейти к оплате"
+    assert pay_btn["web_app"]["url"] == "https://lumina-stars.onrender.com/pay/TP-TEST"
+    assert "?v=c8bce14/pay" not in pay_btn["web_app"]["url"]
+    ym = markup["inline_keyboard"][1][0]
+    assert ym["url"] == "https://yoomoney.ru/to/4100119621450464/515"
+    get_settings.cache_clear()
+
+
+def test_public_receipt(client):
+    headers = auth_header(client)
+    created = client.post("/api/v1/trust-pay/payments", json={"amount": "500"}, headers=headers).json()["data"]
+    rec = client.get(f"/api/v1/trust-pay/receipt/{created['public_id']}")
+    assert rec.status_code == 200, rec.text
+    data = rec.json()["data"]
+    assert data["amount"] == "500.00"
+    assert data["total"] == "515.00"
+    assert data["card_copy"] == "5599 0021 4495 5509"

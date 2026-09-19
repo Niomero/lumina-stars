@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Check, Copy, ExternalLink, Shield } from "lucide-react";
-import { api, ApiError } from "./api/client";
+import { api, ApiError, getToken } from "./api/client";
 import { formatRub, payStatusLabel, payStatusTone } from "./lib/format";
 import { bootTelegram, getWebApp, haptic, openExternal } from "./lib/telegram";
 
@@ -64,6 +64,19 @@ async function copyText(value: string) {
   }
 }
 
+async function loadPay(id: string): Promise<Pay> {
+  try {
+    return await api<Pay>(`/trust-pay/payments/${id}`);
+  } catch {
+    const res = await fetch(`/api/v1/trust-pay/receipt/${id}`);
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok || body.success === false) {
+      throw new ApiError(body?.error?.code || "ERROR", body?.error?.message || "Платёж не найден", res.status);
+    }
+    return body.data as Pay;
+  }
+}
+
 export function TrustPayPage() {
   const { id = "" } = useParams();
   const nav = useNavigate();
@@ -71,7 +84,7 @@ export function TrustPayPage() {
   const [copied, setCopied] = useState(false);
   const pay = useQuery({
     queryKey: ["tp", id],
-    queryFn: () => api<Pay>(`/trust-pay/payments/${id}`),
+    queryFn: () => loadPay(id),
     refetchInterval: (q) => {
       const s = q.state.data?.status;
       return s === "processing" || s === "pending" ? 3000 : false;
@@ -133,8 +146,8 @@ export function TrustPayPage() {
           <Shield size={16} />
         </div>
         <div style={{ minWidth: 0 }}>
-          <div className="tiny">Оплата</div>
-          <h1 className="tp-title">Пополнение</h1>
+          <div className="tiny">TRUST PAY</div>
+          <h1 className="tp-title">Пополнение баланса</h1>
         </div>
       </header>
 
@@ -153,7 +166,7 @@ export function TrustPayPage() {
       {data && (
         <>
           <div className="tp-idrow">
-            <div className="tp-id">Платёж {data.public_id}</div>
+            <div className="tp-id">Оплата платежа {data.public_id}</div>
             <span className={`badge ${payStatusTone(status)}`}>{payStatusLabel(status)}</span>
           </div>
 
@@ -167,7 +180,7 @@ export function TrustPayPage() {
               <b className="num">{formatRub(data.fee)}</b>
             </div>
             <div className="tp-row tp-total">
-              <span>Переведите точно</span>
+              <span>Необходимо перевести</span>
               <strong className="num">{formatRub(data.total)}</strong>
             </div>
           </section>
@@ -177,7 +190,7 @@ export function TrustPayPage() {
               <section className="tp-card" aria-label="Реквизиты получателя">
                 <div className="tp-card-face">
                   <div className="tp-card-top">
-                    <span>Карта для перевода</span>
+                    <span>Перевод по номеру карты</span>
                     <Waves />
                   </div>
                   <div className="tp-pan">
@@ -194,7 +207,7 @@ export function TrustPayPage() {
                     </>
                   ) : (
                     <>
-                      <Copy size={16} /> Скопировать 5599 0021 4495 5509
+                      <Copy size={16} /> Скопировать номер
                     </>
                   )}
                 </button>
@@ -215,13 +228,18 @@ export function TrustPayPage() {
           {status === "pending" && (
             <>
               <ol className="tp-steps">
-                <li>Переведите ровно {formatRub(data.total)} на карту или через ЮMoney.</li>
-                <li>Сумма уже указана — не округляйте и не меняйте её.</li>
-                <li>После перевода нажмите «Я оплатил».</li>
+                <li>Скопируйте номер карты.</li>
+                <li>Откройте приложение своего банка.</li>
+                <li>Переведите {formatRub(data.total)} на указанную карту.</li>
+                <li>После перевода вернитесь сюда.</li>
+                <li>Нажмите «Я оплатил».</li>
               </ol>
               {paid.error && <div className="err">{(paid.error as ApiError).message}</div>}
+              {!getToken() && (
+                <p className="muted">Чтобы подтвердить перевод, откройте страницу кнопкой «Перейти к оплате» в боте.</p>
+              )}
               <div className="tp-foot">
-                <button className="btn block" disabled={paid.isPending} onClick={() => paid.mutate()}>
+                <button className="btn block" disabled={paid.isPending || !getToken()} onClick={() => paid.mutate()}>
                   {paid.isPending ? "Проверяем платёж…" : "Я оплатил"}
                 </button>
               </div>

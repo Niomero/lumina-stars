@@ -78,7 +78,7 @@ def handle_bot_update(db: Session, body: dict) -> None:
     if text.startswith("/start"):
         send(
             {
-                "text": "Lumina — бутик Telegram Stars.\nПополнение — перевод на карту или ЮMoney. Сначала укажите сумму.",
+                "text": "Lumina — бутик Telegram Stars.\nПополнение через TRUST PAY: сначала укажите сумму, затем откроется страница оплаты.",
                 "reply_markup": keyboard,
             }
         )
@@ -90,7 +90,7 @@ def handle_bot_update(db: Session, body: dict) -> None:
             intent.intent = "topup_amount"
             db.merge(intent)
             db.commit()
-        send({"text": "Введите сумму пополнения в ₽. Без суммы ссылка на оплату не выдаётся.", "reply_markup": keyboard})
+        send({"text": "Введите сумму пополнения в ₽", "reply_markup": keyboard})
         return
 
     intent_row = db.get(BotIntent, int(tg_id)) if tg_id else None

@@ -65,11 +65,15 @@ def yoomoney_url(amount) -> str:
     return f"https://yoomoney.ru/to/{wallet}/{amt}"
 
 
+def shop_origin() -> str:
+    raw = (get_settings().telegram_webapp_url or "").strip()
+    return raw.split("#")[0].split("?")[0].rstrip("/")
+
+
 def pay_url(public_id: str) -> str:
-    settings = get_settings()
-    base = (settings.telegram_webapp_url or "").rstrip("/")
+    origin = shop_origin()
     path = f"/pay/{public_id}"
-    return f"{base}{path}" if base else path
+    return f"{origin}{path}" if origin else path
 
 
 def _public_id() -> str:
@@ -92,21 +96,18 @@ def _expire(pay: Payment) -> Payment:
 
 
 def topup_reply(pay: Payment) -> tuple[str, dict | None]:
-    settings = get_settings()
-    card = copy_card(settings.trust_pay_card_number)
-    ym = yoomoney_url(pay.total)
     page = pay_url(pay.public_id or "")
+    ym = yoomoney_url(pay.total)
     text = (
-        "Пополнение баланса\n"
-        f"Зачислим: {money(pay.amount):.2f} ₽\n"
-        f"Комиссия 3%: {money(pay.fee):.2f} ₽\n"
-        f"К переводу: {money(pay.total):.2f} ₽\n\n"
-        f"Карта: {card}\n"
-        f"ЮMoney: {ym}"
+        "TRUST PAY\n"
+        f"Сумма пополнения: {money(pay.amount):.2f} ₽\n"
+        f"Комиссия: {money(pay.fee):.2f} ₽\n"
+        f"К оплате: {money(pay.total):.2f} ₽\n"
+        "Нажмите кнопку ниже, чтобы перейти к оплате."
     )
     buttons: list[list[dict]] = []
     if page.startswith("https://"):
-        buttons.append([{"text": "Оплата картой", "url": page}])
+        buttons.append([{"text": "Перейти к оплате", "web_app": {"url": page}}])
     buttons.append([{"text": "Оплатить ЮMoney", "url": ym}])
     return text, {"inline_keyboard": buttons}
 
@@ -292,7 +293,8 @@ def _notify_paid(db: Session, pay: Payment, balance_after: Decimal) -> None:
     if not settings.telegram_bot_token:
         return
     text = (
-        "Платёж подтверждён.\n"
+        "TRUST PAY\n"
+        "Платёж успешно подтверждён.\n"
         f"Пополнение: {money(pay.amount):.2f} ₽\n"
         f"Комиссия: {money(pay.fee):.2f} ₽\n"
         f"ID платежа: {pay.public_id}\n"
